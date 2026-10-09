@@ -21,6 +21,54 @@ export async function loadGrants(userId: string): Promise<Grant[]> {
     .where(eq(accessGrants.userId, userId));
 }
 
+export type ClientAccess = {
+  projectClientId: string;
+  projectId: string;
+  projectName: string;
+  allowSubactivities: boolean;
+  clientId: string;
+  clientName: string;
+  level: Level;
+};
+
+/**
+ * Carrega um cliente dentro de um projeto e confere o acesso do usuário.
+ * Retorna null se não existir ou se o usuário não puder ver (a página trata
+ * os dois casos igual, para não revelar o que existe).
+ */
+export async function getClientAccess(
+  user: SessionUser,
+  projectClientId: string,
+): Promise<ClientAccess | null> {
+  if (!isUuid(projectClientId)) return null;
+
+  const [row] = await db
+    .select({
+      projectClientId: projectClients.id,
+      projectId: projects.id,
+      projectName: projects.name,
+      allowSubactivities: projects.allowSubactivities,
+      clientId: clients.id,
+      clientName: clients.name,
+    })
+    .from(projectClients)
+    .innerJoin(projects, eq(projects.id, projectClients.projectId))
+    .innerJoin(clients, eq(clients.id, projectClients.clientId))
+    .where(eq(projectClients.id, projectClientId))
+    .limit(1);
+  if (!row) return null;
+
+  const level = accessLevel(user.role, await loadGrants(user.id), row);
+  return level ? { ...row, level } : null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Evita erro do PostgreSQL ao comparar um texto qualquer da URL com uma coluna uuid. */
+export function isUuid(value: string) {
+  return UUID.test(value);
+}
+
 export type VisibleClient = {
   projectClientId: string;
   projectId: string;
