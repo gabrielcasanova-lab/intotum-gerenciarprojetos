@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { getCurrentUser } from "@/lib/auth/dal";
 import { listVisibleClients, type VisibleClient } from "@/lib/data/access";
@@ -27,14 +28,16 @@ async function ClientList() {
           </h2>
           <ul className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
             {list.map((c) => (
-              <li
-                key={c.projectClientId}
-                className="flex items-center justify-between px-4 py-3"
-              >
-                <span>{c.clientName}</span>
-                <span className="text-xs text-slate-500">
-                  {c.level === "editar" ? "Edição" : "Visualização"}
-                </span>
+              <li key={c.projectClientId}>
+                <Link
+                  href={`/c/${c.projectClientId}`}
+                  className="flex items-center justify-between px-4 py-3 hover:bg-slate-50"
+                >
+                  <span>{c.clientName}</span>
+                  <span className="text-xs text-slate-500">
+                    {c.level === "editar" ? "Edição" : "Visualização"}
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>

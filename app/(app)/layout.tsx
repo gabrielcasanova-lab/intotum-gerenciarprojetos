@@ -1,8 +1,29 @@
+import Link from "next/link";
 import { Suspense } from "react";
 import { getCurrentUser } from "@/lib/auth/dal";
 import { logout } from "@/app/login/actions";
 
-const roleLabel = { admin: "Administrador", equipe: "Equipe", cliente: "Cliente" };
+import { roleLabel } from "@/lib/labels";
+
+const navLink = "rounded-md px-2 py-1 text-sm text-slate-700 hover:bg-slate-100";
+
+async function Nav() {
+  const user = await getCurrentUser();
+  if (user.role !== "admin") return null;
+  return (
+    <nav className="flex items-center gap-1">
+      <Link href="/" className={navLink}>
+        Clientes
+      </Link>
+      <Link href="/admin/projetos" className={navLink}>
+        Projetos
+      </Link>
+      <Link href="/admin/usuarios" className={navLink}>
+        Usuários
+      </Link>
+    </nav>
+  );
+}
 
 async function UserMenu() {
   const user = await getCurrentUser();
@@ -23,8 +44,15 @@ async function UserMenu() {
 export default function AppLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="flex flex-1 flex-col bg-slate-50">
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
-        <span className="font-semibold">Intotum Projetos</span>
+      <header className="flex flex-wrap items-center gap-2 justify-between border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
+        <div className="flex flex-wrap items-center gap-4">
+          <Link href="/" className="font-semibold">
+            Intotum Projetos
+          </Link>
+          <Suspense fallback={null}>
+            <Nav />
+          </Suspense>
+        </div>
         <Suspense fallback={null}>
           <UserMenu />
         </Suspense>
