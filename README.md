@@ -68,7 +68,8 @@ nem phpPgAdmin.
    - Raiz do aplicativo: `intotum-projetos`
    - URL do aplicativo: `projetos.intotumse.com.br`
    - Arquivo de inicialização: `app.js`
-   - Variáveis de ambiente (as mesmas de `.env.example`): `DATABASE_URL`, `APP_URL` e,
+   - Variáveis de ambiente: `PGHOST`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` (a senha vai
+     como está, sem converter símbolos; no lugar delas também serve `DATABASE_URL`), `APP_URL` e,
      se houver o e-mail, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`
 5. **Arquivos:** no Gerenciador de Arquivos, envie o `intotum-projetos.zip` para a pasta
    `intotum-projetos` e extraia lá. Não clique em "Run NPM Install": o pacote já traz tudo.
