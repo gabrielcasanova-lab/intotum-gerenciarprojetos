@@ -171,6 +171,23 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
         <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
           <span>{access.projectName}</span>
           {rows.length > 0 && <ProgressBar value={overall} />}
+          {/* Link comum (não Link): o navegador abre o PDF numa aba nova. */}
+          <a
+            href={`/c/${pc}/pdf`}
+            target="_blank"
+            rel="noopener"
+            className={ui.buttonSecondary}
+          >
+            Baixar PDF
+          </a>
+          <a
+            href={`/c/${pc}/pdf?comentarios=1`}
+            target="_blank"
+            rel="noopener"
+            className="text-sm text-blue-700 hover:underline"
+          >
+            PDF com comentários para o cliente
+          </a>
         </div>
       </div>
 
