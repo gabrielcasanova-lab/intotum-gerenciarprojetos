@@ -2,22 +2,34 @@ import "server-only";
 import { createTransport, type Transporter } from "nodemailer";
 
 /**
- * Envio de e-mail pelo SMTP do cPanel. Sem SMTP_HOST configurado (ex.: no
- * computador de desenvolvimento) nada é enviado e quem chamou mostra o link
- * na tela para ser copiado.
+ * Envio de e-mail. Dois jeitos:
+ * - MAIL_TRANSPORT=sendmail: entrega ao programa de e-mail do próprio servidor
+ *   (/usr/sbin/sendmail), como o PHP faz. É o que funciona no cPanel, que
+ *   bloqueia o aplicativo de abrir conexões SMTP, até para localhost.
+ * - SMTP_HOST (+ SMTP_PORT, SMTP_USER, SMTP_PASS): SMTP comum.
+ * Sem nenhum dos dois (ex.: no computador de desenvolvimento) nada é enviado e
+ * quem chamou mostra o link na tela para ser copiado.
  */
+const useSendmail = () => process.env.MAIL_TRANSPORT === "sendmail";
+
 export function mailConfigured() {
-  return Boolean(process.env.SMTP_HOST);
+  return useSendmail() || Boolean(process.env.SMTP_HOST);
 }
 
 let transport: Transporter | undefined;
 
 function getTransport() {
+  if (useSendmail()) {
+    transport ??= createTransport({
+      sendmail: true,
+      newline: "unix",
+      path: process.env.SENDMAIL_PATH ?? "/usr/sbin/sendmail",
+    });
+    return transport;
+  }
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT ?? 465);
-  // No cPanel o aplicativo costuma ser impedido de abrir SMTP "para fora";
-  // o caminho é o servidor de e-mail da própria máquina (localhost), cujo
-  // certificado tem o nome do servidor e não "localhost".
+  // O servidor de e-mail local tem certificado com o nome da máquina, não "localhost".
   const local = host === "localhost" || host === "127.0.0.1";
   transport ??= createTransport({
     host,
@@ -31,18 +43,29 @@ function getTransport() {
   return transport;
 }
 
+/**
+ * Remetente. MAIL_FROM pode vir só com o nome ("Intotum Projetos"); nesse caso
+ * o endereço é o SMTP_USER.
+ */
+export function mailFrom(
+  mailFromEnv = process.env.MAIL_FROM,
+  user = process.env.SMTP_USER,
+) {
+  const value = mailFromEnv?.trim();
+  if (!value) return user;
+  if (value.includes("@") || !user) return value;
+  return `"${value.replace(/"/g, "")}" <${user}>`;
+}
+
 export async function sendMail(to: string, subject: string, text: string) {
   if (!mailConfigured()) {
-    console.error("E-mail não enviado: a variável SMTP_HOST não está configurada.");
+    console.error(
+      "E-mail não enviado: configure MAIL_TRANSPORT=sendmail ou SMTP_HOST.",
+    );
     return false;
   }
   try {
-    await getTransport().sendMail({
-      from: process.env.MAIL_FROM ?? process.env.SMTP_USER,
-      to,
-      subject,
-      text,
-    });
+    await getTransport().sendMail({ from: mailFrom(), to, subject, text });
     return true;
   } catch (error) {
     console.error("Falha ao enviar e-mail:", error);
