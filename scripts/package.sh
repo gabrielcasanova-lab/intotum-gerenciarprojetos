@@ -21,7 +21,29 @@ cp -r drizzle pacote/servidor/drizzle
 rm -f pacote/servidor/.env pacote/servidor/.env.*
 
 cat > pacote/app.js <<'JS'
-// Ponto de entrada no cPanel: só repassa para o servidor do Next.js.
+// Ponto de entrada no cPanel: repassa para o servidor do Next.js.
+// Erros na partida vão para erro-inicio.log nesta pasta (o 500 do cPanel não diz o motivo).
+const fs = require("fs");
+const path = require("path");
+const util = require("util");
+const logFile = path.join(__dirname, "erro-inicio.log");
+const log = (msg) => {
+  try {
+    fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${msg}\n`);
+  } catch {}
+};
+process.on("uncaughtException", (e) => {
+  log((e && e.stack) || e);
+  process.exit(1);
+});
+process.on("unhandledRejection", (e) => log((e && e.stack) || e));
+// Erros que o Next.js só escreve na tela do servidor também vão para o arquivo.
+const consoleError = console.error;
+console.error = (...args) => {
+  log(util.format(...args));
+  consoleError(...args);
+};
+log(`iniciando (Node ${process.version}, pasta ${__dirname})`);
 require("./servidor/server.js");
 JS
 

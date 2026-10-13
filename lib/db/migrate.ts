@@ -10,5 +10,10 @@ import { db } from "@/lib/db";
  * por isso o caminho relativo ao diretório atual funciona nos dois casos.
  */
 export async function runMigrations() {
-  await migrate(db, { migrationsFolder: path.join(process.cwd(), "drizzle") });
+  await migrate(db, {
+    migrationsFolder: path.join(process.cwd(), "drizzle"),
+    // Controle das migrações no schema public: criar um schema próprio exige
+    // permissão extra que o usuário do banco do cPanel pode não ter.
+    migrationsSchema: "public",
+  });
 }

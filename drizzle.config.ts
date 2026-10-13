@@ -6,4 +6,6 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: { url: process.env.DATABASE_URL! },
+  // Igual a lib/db/migrate.ts.
+  migrations: { schema: "public" },
 });
