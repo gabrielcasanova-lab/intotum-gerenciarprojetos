@@ -1,11 +1,12 @@
 import "server-only";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   activities,
   clientModules,
   comments,
   companySettings,
+  trainingVideos,
   users,
 } from "@/lib/db/schema";
 import type { ClientAccess } from "@/lib/data/access";
@@ -19,6 +20,7 @@ export type ReportActivity = {
   priority: Priority;
   assigneeName: string | null;
   clientContact: string | null;
+  startDate: string | null;
   dueDate: string | null;
   comments: { authorName: string | null; createdAt: Date; body: string }[];
 };
@@ -28,6 +30,7 @@ export type ClientReport = {
   projectName: string;
   clientName: string;
   modules: { id: string; name: string; activities: ReportActivity[] }[];
+  videos: { title: string; url: string; recordedOn: string | null }[];
 };
 
 /**
@@ -56,6 +59,7 @@ export async function loadClientReport(
           priority: activities.priority,
           assigneeName: users.name,
           clientContact: activities.clientContact,
+          startDate: activities.startDate,
           dueDate: activities.dueDate,
         })
         .from(activities)
@@ -93,6 +97,16 @@ export async function loadClientReport(
       : [];
   const commentsBy = Map.groupBy(commentRows, (c) => c.activityId);
 
+  const videos = await db
+    .select({
+      title: trainingVideos.title,
+      url: trainingVideos.url,
+      recordedOn: trainingVideos.recordedOn,
+    })
+    .from(trainingVideos)
+    .where(eq(trainingVideos.projectClientId, access.projectClientId))
+    .orderBy(desc(trainingVideos.recordedOn), desc(trainingVideos.createdAt));
+
   // Subatividade logo depois da sua atividade-pai.
   const ordered = (list: typeof rows) => {
     const children = Map.groupBy(
@@ -114,5 +128,6 @@ export async function loadClientReport(
         (a) => ({ ...a, comments: commentsBy.get(a.id) ?? [] }),
       ),
     })),
+    videos,
   };
 }

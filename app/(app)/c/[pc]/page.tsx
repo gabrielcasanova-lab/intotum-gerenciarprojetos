@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   activities,
   clientModules,
   moduleCatalog,
+  trainingVideos,
   users,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/auth/dal";
@@ -25,6 +26,9 @@ import { ConfirmButton } from "@/components/confirm-button";
 import {
   activateModule,
   addActivity,
+  addTrainingVideo,
+  deleteActivity,
+  deleteTrainingVideo,
   removeClientModule,
   updateStatus,
 } from "../actions";
@@ -71,7 +75,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
     .where(eq(clientModules.projectClientId, pc))
     .orderBy(asc(clientModules.position), asc(clientModules.name));
 
-  const [rows, catalog] = await Promise.all([
+  const [rows, catalog, videos] = await Promise.all([
     modules.length
       ? db
           .select({
@@ -100,6 +104,11 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
           .where(eq(moduleCatalog.projectId, access.projectId))
           .orderBy(asc(moduleCatalog.position), asc(moduleCatalog.name))
       : Promise.resolve([]),
+    db
+      .select()
+      .from(trainingVideos)
+      .where(eq(trainingVideos.projectClientId, pc))
+      .orderBy(desc(trainingVideos.recordedOn), desc(trainingVideos.createdAt)),
   ]);
 
   const today = todayInBrazil(new Date());
@@ -157,6 +166,20 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
         </form>
       ) : (
         <StatusBadge status={a.status} />
+      )}
+      {editable && (
+        <form action={deleteActivity}>
+          <input type="hidden" name="projectClientId" value={pc} />
+          <input type="hidden" name="activityId" value={a.id} />
+          <ConfirmButton
+            className="rounded px-1.5 text-slate-400 hover:bg-red-50 hover:text-red-700"
+            aria-label={`Excluir ${a.name}`}
+            title="Excluir atividade"
+            message={`Excluir a atividade "${a.name}" deste cliente? Os comentários dela também serão apagados.`}
+          >
+            ×
+          </ConfirmButton>
+        </form>
       )}
     </li>
   );
@@ -269,6 +292,76 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
           </section>
         );
       })}
+
+      <section className={`${ui.card} flex flex-col gap-3 p-4`}>
+        <h2 className="text-lg font-semibold">Treinamentos gravados</h2>
+        {videos.length > 0 ? (
+          <ul className="divide-y divide-slate-100">
+            {videos.map((v) => (
+              <li key={v.id} className="flex flex-wrap items-center gap-2 py-2">
+                <a
+                  href={v.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-w-0 flex-1 text-sm text-blue-700 hover:underline"
+                >
+                  ▶ {v.title}
+                </a>
+                {v.recordedOn && (
+                  <span className="text-xs text-slate-500">
+                    {formatDate(v.recordedOn)}
+                  </span>
+                )}
+                {editable && (
+                  <form action={deleteTrainingVideo}>
+                    <input type="hidden" name="projectClientId" value={pc} />
+                    <input type="hidden" name="videoId" value={v.id} />
+                    <ConfirmButton
+                      className={ui.buttonDanger}
+                      message={`Remover o link "${v.title}"? O vídeo em si não é apagado.`}
+                    >
+                      Remover
+                    </ConfirmButton>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-slate-500">Nenhum treinamento gravado ainda.</p>
+        )}
+        {editable && (
+          <form action={addTrainingVideo} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="projectClientId" value={pc} />
+            <label className={`${ui.label} min-w-48 flex-1`}>
+              Título
+              <input
+                name="title"
+                required
+                maxLength={300}
+                placeholder="Ex.: Treinamento de Estoque"
+                className={ui.input}
+              />
+            </label>
+            <label className={`${ui.label} min-w-48 flex-[2]`}>
+              Link do vídeo
+              <input
+                name="url"
+                type="url"
+                required
+                maxLength={2000}
+                placeholder="https://..."
+                className={ui.input}
+              />
+            </label>
+            <label className={ui.label}>
+              Data
+              <input name="recordedOn" type="date" className={ui.input} />
+            </label>
+            <button className={ui.buttonSecondary}>Adicionar</button>
+          </form>
+        )}
+      </section>
 
       {editable && (
         <form

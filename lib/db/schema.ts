@@ -279,6 +279,25 @@ export const comments = pgTable(
   (t) => [index("comments_activity_idx").on(t.activityId)],
 );
 
+/** Treinamentos gravados de um cliente: links de vídeo que o cliente pode abrir. */
+export const trainingVideos = pgTable(
+  "training_videos",
+  {
+    id: id(),
+    projectClientId: uuid("project_client_id")
+      .notNull()
+      .references(() => projectClients.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    url: text("url").notNull(),
+    recordedOn: date("recorded_on"),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("training_videos_pc_idx").on(t.projectClientId)],
+);
+
 export const attachments = pgTable("attachments", {
   id: id(),
   activityId: uuid("activity_id")
