@@ -13,11 +13,17 @@ export function mailConfigured() {
 let transport: Transporter | undefined;
 
 function getTransport() {
+  const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT ?? 465);
+  // No cPanel o aplicativo costuma ser impedido de abrir SMTP "para fora";
+  // o caminho é o servidor de e-mail da própria máquina (localhost), cujo
+  // certificado tem o nome do servidor e não "localhost".
+  const local = host === "localhost" || host === "127.0.0.1";
   transport ??= createTransport({
-    host: process.env.SMTP_HOST,
+    host,
     port,
     secure: port === 465,
+    tls: local ? { rejectUnauthorized: false } : undefined,
     auth: process.env.SMTP_USER
       ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
       : undefined,
