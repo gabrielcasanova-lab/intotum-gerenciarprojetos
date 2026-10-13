@@ -21,6 +21,7 @@ import {
   deleteModule,
   deleteTemplateActivity,
   unlinkClient,
+  updateClient,
   updateProject,
 } from "../actions";
 
@@ -56,6 +57,10 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
         projectClientId: projectClients.id,
         clientId: clients.id,
         name: clients.name,
+        cnpj: clients.cnpj,
+        contactName: clients.contactName,
+        email: clients.email,
+        phone: clients.phone,
       })
       .from(projectClients)
       .innerJoin(clients, eq(clients.id, projectClients.clientId))
@@ -134,27 +139,68 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
         {linked.length > 0 ? (
           <ul className={`${ui.card} divide-y divide-slate-200`}>
             {linked.map((c) => (
-              <li
-                key={c.projectClientId}
-                className="flex items-center justify-between gap-2 px-4 py-2"
-              >
-                <Link href={`/c/${c.projectClientId}`} className="hover:underline">
-                  {c.name}
-                </Link>
-                <form action={unlinkClient}>
-                  <input type="hidden" name="projectId" value={project.id} />
-                  <input
-                    type="hidden"
-                    name="projectClientId"
-                    value={c.projectClientId}
-                  />
-                  <ConfirmButton
-                    className={ui.buttonDanger}
-                    message={`Remover ${c.name} deste projeto? Os módulos e atividades dele neste projeto serão apagados.`}
+              <li key={c.projectClientId} className="px-4 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Link href={`/c/${c.projectClientId}`} className="hover:underline">
+                    {c.name}
+                  </Link>
+                  <form action={unlinkClient}>
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <input
+                      type="hidden"
+                      name="projectClientId"
+                      value={c.projectClientId}
+                    />
+                    <ConfirmButton
+                      className={ui.buttonDanger}
+                      message={`Remover ${c.name} deste projeto? Os módulos e atividades dele neste projeto serão apagados.`}
+                    >
+                      Remover
+                    </ConfirmButton>
+                  </form>
+                </div>
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-sm text-blue-700 hover:underline">
+                    Editar dados
+                  </summary>
+                  {/* key: depois de salvar, o formulário volta com os dados novos. */}
+                  <form
+                    key={[c.name, c.cnpj, c.contactName, c.email, c.phone].join("|")}
+                    action={updateClient}
+                    className="mt-2 flex flex-col gap-3"
                   >
-                    Remover
-                  </ConfirmButton>
-                </form>
+                    <input type="hidden" name="clientId" value={c.clientId} />
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {(
+                        [
+                          ["name", "Nome", c.name, 200],
+                          ["cnpj", "CNPJ", c.cnpj, 30],
+                          ["contactName", "Contato principal", c.contactName, 200],
+                          ["email", "E-mail", c.email, 200],
+                          ["phone", "Telefone", c.phone, 50],
+                        ] as const
+                      ).map(([name, label, value, max]) => (
+                        <label key={name} className={ui.label}>
+                          {label}
+                          <input
+                            name={name}
+                            type={name === "email" ? "email" : "text"}
+                            required={name === "name"}
+                            maxLength={max}
+                            defaultValue={value ?? ""}
+                            className={ui.input}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      O cadastro é único: a alteração vale em todos os projetos deste cliente.
+                    </p>
+                    <div>
+                      <button className={ui.button}>Salvar dados</button>
+                    </div>
+                  </form>
+                </details>
               </li>
             ))}
           </ul>
@@ -273,8 +319,8 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
           <input
             name="name"
             required
-            maxLength={200}
-            placeholder="Novo módulo (ex.: Estoque)"
+            maxLength={2000}
+            placeholder="Um ou vários, separados por vírgula (ex.: Estoque, Vendas)"
             className={`${ui.input} flex-1`}
           />
           <button className={ui.button}>Adicionar módulo</button>

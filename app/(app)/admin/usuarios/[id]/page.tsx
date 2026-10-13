@@ -16,11 +16,18 @@ import { roleLabel } from "@/lib/labels";
 import * as ui from "@/lib/ui/styles";
 import { ConfirmButton } from "@/components/confirm-button";
 import { addGrant, removeGrant, setUserActive } from "../actions";
-import { ResetPasswordForm } from "../forms";
+import { ResetPasswordForm, SendLinkForm } from "../forms";
 
-async function UserDetail({ params }: { params: Promise<{ id: string }> }) {
+async function UserDetail({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ convite?: string }>;
+}) {
   const admin = await requireAdmin();
   const { id } = await params;
+  const { convite } = await searchParams;
   if (!isUuid(id)) notFound();
 
   const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -68,7 +75,19 @@ async function UserDetail({ params }: { params: Promise<{ id: string }> }) {
         <p className="text-sm text-slate-600">
           {user.email} · {roleLabel[user.role]}
           {!user.active && " · desativado"}
+          {!user.passwordHash && " · ainda não criou a senha"}
         </p>
+        {convite === "enviado" && (
+          <p role="status" className="mt-2 text-sm text-green-700">
+            Usuário criado e convite enviado para {user.email}.
+          </p>
+        )}
+        {convite === "pendente" && (
+          <p role="status" className="mt-2 text-sm text-amber-800">
+            Usuário criado, mas o e-mail do convite não saiu. Use “Reenviar
+            convite” abaixo para gerar o link e mandar para a pessoa.
+          </p>
+        )}
       </div>
 
       <section className="flex flex-col gap-3">
@@ -158,6 +177,7 @@ async function UserDetail({ params }: { params: Promise<{ id: string }> }) {
 
       <section className={`${ui.card} flex flex-col gap-4 p-4`}>
         <h2 className="font-semibold">Conta</h2>
+        <SendLinkForm userId={user.id} hasPassword={Boolean(user.passwordHash)} />
         <ResetPasswordForm userId={user.id} />
         {user.id !== admin.id && (
           <form action={setUserActive}>
@@ -180,10 +200,16 @@ async function UserDetail({ params }: { params: Promise<{ id: string }> }) {
   );
 }
 
-export default function UserPage({ params }: PageProps<"/admin/usuarios/[id]">) {
+export default function UserPage({
+  params,
+  searchParams,
+}: PageProps<"/admin/usuarios/[id]">) {
   return (
     <Suspense fallback={<p className="text-slate-500">Carregando…</p>}>
-      <UserDetail params={params} />
+      <UserDetail
+        params={params}
+        searchParams={searchParams as Promise<{ convite?: string }>}
+      />
     </Suspense>
   );
 }

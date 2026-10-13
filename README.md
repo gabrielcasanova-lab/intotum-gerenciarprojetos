@@ -46,20 +46,42 @@ npm run lint
 npm run build
 ```
 
-## Publicar no cPanel (rascunho, a validar na primeira publicação)
+## Publicar no cPanel
 
-1. **Banco:** em "Bancos de dados PostgreSQL", crie o banco e o usuário e dê acesso ao usuário.
-2. **Tabelas:** abra o phpPgAdmin, selecione o banco e execute o conteúdo de `drizzle/0000_*.sql`.
-3. **Pacote:** rode `npm run build` e depois
-   `cp -r public .next/standalone/ && cp -r .next/static .next/standalone/.next/`.
-   Compacte a pasta `.next/standalone` e envie pelo Gerenciador de Arquivos para uma pasta
-   como `/home/intotumse/intotum-projetos`.
+O GitHub monta o pacote sozinho: a cada mudança na branch `main`, a ação **Testes e pacote**
+roda os testes e gera o arquivo `intotum-projetos.zip` (aba Actions → execução mais recente →
+Artifacts). Para gerar no computador: `npm run build && ./scripts/package.sh`.
+
+O pacote tem `app.js` (arquivo de inicialização) e a pasta `servidor/`. As tabelas do banco
+são criadas e atualizadas sozinhas quando o aplicativo sobe, então não é preciso terminal
+nem phpPgAdmin.
+
+### Primeira vez
+
+1. **Banco:** em "Bancos de dados PostgreSQL", crie o banco e o usuário e dê todos os
+   privilégios ao usuário no banco.
+2. **E-mail de envio (opcional):** em "Contas de e-mail", crie `projetos@intotumse.com.br`.
+   Sem ele o sistema funciona, mas os convites aparecem como link para copiar.
+3. **Subdomínio:** em "Domínios", crie `projetos.intotumse.com.br`.
 4. **Aplicação:** em "Setup Node.js App" → Criar aplicação:
-   - Versão Node.js: **22.23.3**
-   - Modo: **Production**
+   - Versão Node.js: **22.23.3**; Modo: **Production**
    - Raiz do aplicativo: `intotum-projetos`
-   - URL: o subdomínio escolhido (ex.: `projetos.intotumse.com.br`)
-   - Arquivo de inicialização: `server.js`
-   - Variável de ambiente: `DATABASE_URL`
-5. **Primeiro administrador:** ainda depende do script `create-admin`; a forma de rodá-lo no
-   cPanel será definida na primeira publicação.
+   - URL do aplicativo: `projetos.intotumse.com.br`
+   - Arquivo de inicialização: `app.js`
+   - Variáveis de ambiente: `PGHOST`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` (a senha vai
+     como está, sem converter símbolos; no lugar delas também serve `DATABASE_URL`), `APP_URL` e,
+     se houver o e-mail, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`
+5. **Arquivos:** no Gerenciador de Arquivos, envie o `intotum-projetos.zip` para a pasta
+   `intotum-projetos` e extraia lá. Não clique em "Run NPM Install": o pacote já traz tudo.
+6. **Iniciar:** no `.htaccess` da pasta do subdomínio (ex.: `public_html/projetos.intotumse.com.br`),
+   acrescente `RewriteEngine Off` depois do bloco do CloudLinux Passenger. Sem isso, as regras do
+   WordPress de `public_html` valem também para o subdomínio e o Apache responde 500.
+   Depois volte ao "Setup Node.js App" e clique em **Restart**. O registro do sistema fica no
+   "Passenger log file" configurado na aplicação (ex.: `~/logs/projetos.log`).
+7. **Administrador:** abra `https://projetos.intotumse.com.br/primeiro-acesso` e crie o seu
+   usuário. Essa tela só funciona enquanto o banco não tem nenhum usuário.
+
+### Atualizações
+
+Pare o aplicativo, apague a pasta `servidor` antiga, envie e extraia o zip novo e clique
+em **Restart**. As migrações novas rodam sozinhas ao iniciar.

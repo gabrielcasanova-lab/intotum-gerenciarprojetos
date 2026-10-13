@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
+import { connection } from "next/server";
 import { and, eq, gt } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { sessions, users } from "@/lib/db/schema";
@@ -43,6 +44,8 @@ export type SessionUser = {
 export async function readSessionUser(): Promise<SessionUser | null> {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
+  // Comparar com a hora atual exige renderizar na hora do pedido, nunca antes.
+  await connection();
 
   const [row] = await db
     .select({

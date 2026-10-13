@@ -1,0 +1,29 @@
+name: Testes e pacote
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Mesma versão principal do Node no cPanel.
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - run: ./scripts/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: intotum-projetos
+          path: intotum-projetos.zip
+          retention-days: 30

@@ -101,6 +101,30 @@ export const sessions = pgTable(
   (t) => [index("sessions_user_idx").on(t.userId)],
 );
 
+/**
+ * Links de uso único enviados por e-mail: convite (criar a primeira senha)
+ * e redefinição de senha. O id é o SHA-256 do token; o token só vai no e-mail.
+ */
+export const userTokenPurpose = pgEnum("user_token_purpose", [
+  "convite",
+  "redefinir",
+]);
+
+export const userTokens = pgTable(
+  "user_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    purpose: userTokenPurpose("purpose").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("user_tokens_user_idx").on(t.userId)],
+);
+
 // ---------- Hierarquia ----------
 
 export const projects = pgTable("projects", {
