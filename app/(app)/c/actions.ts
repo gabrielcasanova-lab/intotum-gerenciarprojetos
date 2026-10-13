@@ -12,6 +12,7 @@ import {
   comments,
   moduleCatalog,
   moduleTemplateActivities,
+  trainingVideos,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/auth/dal";
 import { getClientAccess } from "@/lib/data/access";
@@ -296,5 +297,50 @@ export async function addComment(formData: FormData) {
   await logAudit(user.id, "comentario", row.id, "criar", {
     visibility: data.visibility,
   });
+  refresh();
+}
+
+/** Link de vídeo de treinamento: só http(s), para o link nunca executar nada no navegador. */
+const videoUrl = z
+  .string()
+  .trim()
+  .max(2000)
+  .pipe(z.url({ protocol: /^https?$/, error: "Informe um link começando com https://" }));
+
+export async function addTrainingVideo(formData: FormData) {
+  const data = z
+    .object({
+      projectClientId: id,
+      title: z.string().trim().min(1).max(300),
+      url: videoUrl,
+      recordedOn: optionalDate,
+    })
+    .parse(Object.fromEntries(formData));
+  const { user } = await requireEdit(data.projectClientId);
+  const [row] = await db
+    .insert(trainingVideos)
+    .values({ ...data, createdBy: user.id })
+    .returning({ id: trainingVideos.id });
+  await logAudit(user.id, "treinamento", row.id, "criar", {
+    title: data.title,
+    url: data.url,
+  });
+  refresh();
+}
+
+export async function deleteTrainingVideo(formData: FormData) {
+  const { projectClientId, videoId } = z
+    .object({ projectClientId: id, videoId: id })
+    .parse(Object.fromEntries(formData));
+  const { user } = await requireEdit(projectClientId);
+  await db
+    .delete(trainingVideos)
+    .where(
+      and(
+        eq(trainingVideos.id, videoId),
+        eq(trainingVideos.projectClientId, projectClientId),
+      ),
+    );
+  await logAudit(user.id, "treinamento", videoId, "excluir");
   refresh();
 }

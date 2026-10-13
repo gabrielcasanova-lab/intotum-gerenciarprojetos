@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, max } from "drizzle-orm";
+import { and, asc, eq, inArray, max } from "drizzle-orm";
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import * as z from "zod";
@@ -107,6 +107,81 @@ export async function addModule(formData: FormData) {
       name: mod.name,
     });
   }
+  refresh();
+}
+
+/**
+ * Copia o catálogo de outro projeto (módulos e atividades padrão). Módulos com
+ * o mesmo nome que já existem aqui ficam como estão.
+ */
+export async function copyModulesFrom(formData: FormData) {
+  const admin = await requireAdmin();
+  const { projectId, sourceProjectId } = z
+    .object({ projectId: id, sourceProjectId: id })
+    .parse(Object.fromEntries(formData));
+  if (projectId === sourceProjectId) return refresh();
+
+  const [source, existing] = await Promise.all([
+    db
+      .select()
+      .from(moduleCatalog)
+      .where(eq(moduleCatalog.projectId, sourceProjectId))
+      .orderBy(asc(moduleCatalog.position)),
+    db
+      .select({ name: moduleCatalog.name })
+      .from(moduleCatalog)
+      .where(eq(moduleCatalog.projectId, projectId)),
+  ]);
+  // Mesma regra do cadastro: ignora nomes repetidos ou já existentes aqui.
+  const names = new Set(
+    splitNames(
+      source.map((m) => m.name).join("\n"),
+      existing.map((m) => m.name),
+    ),
+  );
+  const toCopy = source.filter((m) =>
+    names.delete(m.name.trim().replace(/\s+/g, " ")),
+  );
+  if (toCopy.length === 0) return refresh();
+
+  const templates = await db
+    .select()
+    .from(moduleTemplateActivities)
+    .where(
+      inArray(
+        moduleTemplateActivities.moduleCatalogId,
+        toCopy.map((m) => m.id),
+      ),
+    )
+    .orderBy(asc(moduleTemplateActivities.position));
+  const first = await nextPosition(
+    moduleCatalog,
+    eq(moduleCatalog.projectId, projectId),
+  );
+
+  await db.transaction(async (tx) => {
+    for (const [i, m] of toCopy.entries()) {
+      const [mod] = await tx
+        .insert(moduleCatalog)
+        .values({ projectId, name: m.name, position: first + i })
+        .returning({ id: moduleCatalog.id });
+      const list = templates.filter((t) => t.moduleCatalogId === m.id);
+      if (list.length) {
+        await tx.insert(moduleTemplateActivities).values(
+          list.map((t) => ({
+            moduleCatalogId: mod.id,
+            name: t.name,
+            description: t.description,
+            position: t.position,
+          })),
+        );
+      }
+    }
+  });
+  await logAudit(admin.id, "projeto", projectId, "alterar", {
+    copiouModulosDe: sourceProjectId,
+    modulos: toCopy.map((m) => m.name),
+  });
   refresh();
 }
 

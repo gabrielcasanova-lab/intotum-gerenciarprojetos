@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { asc, eq, notInArray } from "drizzle-orm";
+import { asc, eq, ne, notInArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   clients,
@@ -18,6 +18,7 @@ import {
   addClientToProject,
   addModule,
   addTemplateActivity,
+  copyModulesFrom,
   deleteModule,
   deleteTemplateActivity,
   unlinkClient,
@@ -67,6 +68,12 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
       .where(eq(projectClients.projectId, id))
       .orderBy(asc(clients.name)),
   ]);
+
+  const otherProjects = await db
+    .select({ id: projects.id, name: projects.name })
+    .from(projects)
+    .where(ne(projects.id, id))
+    .orderBy(asc(projects.name));
 
   const linkedIds = linked.map((c) => c.clientId);
   const otherClients = await db
@@ -325,6 +332,28 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
           />
           <button className={ui.button}>Adicionar módulo</button>
         </form>
+        {otherProjects.length > 0 && (
+          <form action={copyModulesFrom} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="projectId" value={project.id} />
+            <label className={`${ui.label} min-w-48 flex-1`}>
+              Copiar módulos e atividades padrão de outro projeto
+              <select name="sourceProjectId" required defaultValue="" className={ui.input}>
+                <option value="" disabled>
+                  — escolha o projeto —
+                </option>
+                {otherProjects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className={ui.buttonSecondary}>Copiar módulos</button>
+            <p className="w-full text-xs text-slate-500">
+              Módulos com o mesmo nome que já existem aqui não são copiados de novo.
+            </p>
+          </form>
+        )}
       </section>
     </div>
   );
