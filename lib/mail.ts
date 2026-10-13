@@ -32,7 +32,10 @@ function getTransport() {
 }
 
 export async function sendMail(to: string, subject: string, text: string) {
-  if (!mailConfigured()) return false;
+  if (!mailConfigured()) {
+    console.error("E-mail não enviado: a variável SMTP_HOST não está configurada.");
+    return false;
+  }
   try {
     await getTransport().sendMail({
       from: process.env.MAIL_FROM ?? process.env.SMTP_USER,
