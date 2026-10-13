@@ -14,6 +14,7 @@ import {
 } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth/dal";
 import { logAudit } from "@/lib/audit";
+import { splitNames } from "@/lib/names";
 
 const text = (max = 200) => z.string().trim().min(1).max(max);
 const optionalText = (max = 2000) =>
@@ -77,18 +78,35 @@ async function nextPosition(
 export async function addModule(formData: FormData) {
   const admin = await requireAdmin();
   const { projectId, name } = z
-    .object({ projectId: id, name: text() })
+    .object({ projectId: id, name: text(2000) })
     .parse(Object.fromEntries(formData));
+
+  // Aceita vários de uma vez: "Estoque, Vendas, Fiscal".
+  const existing = await db
+    .select({ name: moduleCatalog.name })
+    .from(moduleCatalog)
+    .where(eq(moduleCatalog.projectId, projectId));
+  const names = splitNames(
+    name,
+    existing.map((m) => m.name),
+  ).map((n) => text().parse(n));
+  if (names.length === 0) return refresh();
 
   const position = await nextPosition(
     moduleCatalog,
     eq(moduleCatalog.projectId, projectId),
   );
-  const [mod] = await db
+  const mods = await db
     .insert(moduleCatalog)
-    .values({ projectId, name, position })
+    .values(
+      names.map((n, i) => ({ projectId, name: n, position: position + i })),
+    )
     .returning();
-  await logAudit(admin.id, "modulo_catalogo", mod.id, "criar", { name });
+  for (const mod of mods) {
+    await logAudit(admin.id, "modulo_catalogo", mod.id, "criar", {
+      name: mod.name,
+    });
+  }
   refresh();
 }
 

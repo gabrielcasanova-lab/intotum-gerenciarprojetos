@@ -273,8 +273,8 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
           <input
             name="name"
             required
-            maxLength={200}
-            placeholder="Novo módulo (ex.: Estoque)"
+            maxLength={2000}
+            placeholder="Um ou vários, separados por vírgula (ex.: Estoque, Vendas)"
             className={`${ui.input} flex-1`}
           />
           <button className={ui.button}>Adicionar módulo</button>
