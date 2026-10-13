@@ -73,7 +73,11 @@ nem phpPgAdmin.
      se houver o e-mail, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`
 5. **Arquivos:** no Gerenciador de Arquivos, envie o `intotum-projetos.zip` para a pasta
    `intotum-projetos` e extraia lá. Não clique em "Run NPM Install": o pacote já traz tudo.
-6. **Iniciar:** volte ao "Setup Node.js App" e clique em **Restart**.
+6. **Iniciar:** no `.htaccess` da pasta do subdomínio (ex.: `public_html/projetos.intotumse.com.br`),
+   acrescente `RewriteEngine Off` depois do bloco do CloudLinux Passenger. Sem isso, as regras do
+   WordPress de `public_html` valem também para o subdomínio e o Apache responde 500.
+   Depois volte ao "Setup Node.js App" e clique em **Restart**. O registro do sistema fica no
+   "Passenger log file" configurado na aplicação (ex.: `~/logs/projetos.log`).
 7. **Administrador:** abra `https://projetos.intotumse.com.br/primeiro-acesso` e crie o seu
    usuário. Essa tela só funciona enquanto o banco não tem nenhum usuário.
 
