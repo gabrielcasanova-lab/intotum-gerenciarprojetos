@@ -193,6 +193,24 @@ export async function addClientToProject(formData: FormData) {
   refresh();
 }
 
+export async function updateClient(formData: FormData) {
+  const admin = await requireAdmin();
+  const { clientId, ...values } = z
+    .object({
+      clientId: id,
+      name: text(),
+      cnpj: optionalText(30),
+      contactName: optionalText(200),
+      email: optionalText(200),
+      phone: optionalText(50),
+    })
+    .parse(Object.fromEntries(formData));
+
+  await db.update(clients).set(values).where(eq(clients.id, clientId));
+  await logAudit(admin.id, "cliente", clientId, "alterar", values);
+  refresh();
+}
+
 export async function unlinkClient(formData: FormData) {
   const admin = await requireAdmin();
   const { projectId, projectClientId } = z
