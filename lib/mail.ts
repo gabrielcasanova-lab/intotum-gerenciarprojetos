@@ -10,16 +10,16 @@ import { createTransport, type Transporter } from "nodemailer";
  * Sem nenhum dos dois (ex.: no computador de desenvolvimento) nada é enviado e
  * quem chamou mostra o link na tela para ser copiado.
  */
-const useSendmail = () => process.env.MAIL_TRANSPORT === "sendmail";
+const viaSendmail = () => process.env.MAIL_TRANSPORT === "sendmail";
 
 export function mailConfigured() {
-  return useSendmail() || Boolean(process.env.SMTP_HOST);
+  return viaSendmail() || Boolean(process.env.SMTP_HOST);
 }
 
 let transport: Transporter | undefined;
 
 function getTransport() {
-  if (useSendmail()) {
+  if (viaSendmail()) {
     transport ??= createTransport({
       sendmail: true,
       newline: "unix",
