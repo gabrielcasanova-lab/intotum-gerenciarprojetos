@@ -8,7 +8,13 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 import type { ClientReport } from "@/lib/data/report";
-import { formatDate, priorityLabel, statusLabel, type Status } from "@/lib/labels";
+import {
+  formatDate,
+  implementationStatusLabel,
+  priorityLabel,
+  statusLabel,
+  type Status,
+} from "@/lib/labels";
 import { isOverdue, percentDone } from "@/lib/progress";
 
 // Cores fixas do PDF (mesma família das etiquetas da tela): texto e fundo da etiqueta.
@@ -167,7 +173,8 @@ function ClientReportDocument({
           <Text style={s.company}>{report.companyName}</Text>
           <Text style={s.title}>{report.clientName}</Text>
           <Text style={s.subtitle}>
-            {report.projectName} · Andamento da implantação
+            {report.projectName} · Implantação:{" "}
+            {implementationStatusLabel[report.status].toLowerCase()}
           </Text>
         </View>
 

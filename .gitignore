@@ -45,3 +45,6 @@ next-env.d.ts
 # pacote do cPanel
 /pacote
 /intotum-projetos.zip
+
+# anexos enviados no computador de desenvolvimento
+/anexos

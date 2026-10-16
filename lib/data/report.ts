@@ -9,6 +9,7 @@ import {
   trainingVideos,
   users,
 } from "@/lib/db/schema";
+import type { ImplementationStatus } from "@/lib/labels";
 import type { ClientAccess } from "@/lib/data/access";
 import type { Priority, Status } from "@/lib/labels";
 
@@ -29,6 +30,7 @@ export type ClientReport = {
   companyName: string;
   projectName: string;
   clientName: string;
+  status: ImplementationStatus;
   modules: { id: string; name: string; activities: ReportActivity[] }[];
   videos: { title: string; url: string; recordedOn: string | null }[];
 };
@@ -122,6 +124,7 @@ export async function loadClientReport(
     companyName: settings?.name ?? "Intotum",
     projectName: access.projectName,
     clientName: access.clientName,
+    status: access.status,
     modules: modules.map((m) => ({
       ...m,
       activities: ordered(rows.filter((r) => r.clientModuleId === m.id)).map(

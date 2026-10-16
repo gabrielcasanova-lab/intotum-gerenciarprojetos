@@ -14,6 +14,9 @@ import { getCurrentUser } from "@/lib/auth/dal";
 import { getClientAccess } from "@/lib/data/access";
 import {
   formatDate,
+  IMPLEMENTATION_STATUSES,
+  implementationStatusColor,
+  implementationStatusLabel,
   statusColor,
   statusLabel,
   STATUSES,
@@ -23,13 +26,18 @@ import { isOverdue, percentDone, todayInBrazil } from "@/lib/progress";
 import * as ui from "@/lib/ui/styles";
 import { AutoSubmitSelect } from "@/components/auto-submit-select";
 import { ConfirmButton } from "@/components/confirm-button";
+import { ImplementationBadge } from "@/components/implementation-badge";
+import { MoveButtons } from "@/components/move-buttons";
 import {
   activateModule,
   addActivity,
   addTrainingVideo,
   deleteActivity,
   deleteTrainingVideo,
+  moveClientModule,
   removeClientModule,
+  renameClientModule,
+  updateImplementationStatus,
   updateStatus,
 } from "../actions";
 
@@ -193,6 +201,26 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
         <h1 className="mt-1 text-2xl font-semibold">{access.clientName}</h1>
         <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
           <span>{access.projectName}</span>
+          {editable ? (
+            <form key={access.status} action={updateImplementationStatus}>
+              <input type="hidden" name="projectClientId" value={pc} />
+              <AutoSubmitSelect
+                name="status"
+                defaultValue={access.status}
+                aria-label="Situação da implantação"
+                title="Situação da implantação"
+                className={`rounded-full border-0 px-2 py-0.5 text-xs ${implementationStatusColor[access.status]}`}
+              >
+                {IMPLEMENTATION_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {implementationStatusLabel[s]}
+                  </option>
+                ))}
+              </AutoSubmitSelect>
+            </form>
+          ) : (
+            <ImplementationBadge status={access.status} />
+          )}
           {rows.length > 0 && <ProgressBar value={overall} />}
           {/* Link comum (não Link): o navegador abre o PDF numa aba nova. */}
           <a
@@ -220,13 +248,24 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
         </p>
       )}
 
-      {modules.map((m) => {
+      {modules.map((m, i) => {
         const list = byModule.get(m.id) ?? [];
         const top = list.filter((a) => !a.parentId);
         return (
           <section key={m.id} className={`${ui.card} p-4`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold">{m.name}</h2>
+              <div className="flex items-center gap-2">
+                {editable && (
+                  <MoveButtons
+                    action={moveClientModule}
+                    fields={{ projectClientId: pc, clientModuleId: m.id }}
+                    name={m.name}
+                    first={i === 0}
+                    last={i === modules.length - 1}
+                  />
+                )}
+                <h2 className="text-lg font-semibold">{m.name}</h2>
+              </div>
               <div className="flex items-center gap-3">
                 {list.length > 0 && (
                   <ProgressBar value={percentDone(list.map((a) => a.status))} />
@@ -245,6 +284,31 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                 )}
               </div>
             </div>
+
+            {editable && (
+              <details className="mt-1">
+                <summary className="cursor-pointer text-xs text-blue-700 hover:underline">
+                  Renomear módulo
+                </summary>
+                <form
+                  key={m.name}
+                  action={renameClientModule}
+                  className="mt-2 flex gap-2"
+                >
+                  <input type="hidden" name="projectClientId" value={pc} />
+                  <input type="hidden" name="clientModuleId" value={m.id} />
+                  <input
+                    name="name"
+                    required
+                    maxLength={200}
+                    defaultValue={m.name}
+                    aria-label={`Novo nome de ${m.name}`}
+                    className={`${ui.input} flex-1`}
+                  />
+                  <button className={ui.buttonSecondary}>Salvar nome</button>
+                </form>
+              </details>
+            )}
 
             {top.length > 0 ? (
               <ul className="mt-2 divide-y divide-slate-100">

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { getCurrentUser } from "@/lib/auth/dal";
 import { listVisibleClients, type VisibleClient } from "@/lib/data/access";
+import { ImplementationBadge } from "@/components/implementation-badge";
 
 async function ClientList() {
   const user = await getCurrentUser();
@@ -33,7 +34,10 @@ async function ClientList() {
                   href={`/c/${c.projectClientId}`}
                   className="flex items-center justify-between px-4 py-3 hover:bg-slate-50"
                 >
-                  <span>{c.clientName}</span>
+                  <span className="flex items-center gap-2">
+                    {c.clientName}
+                    <ImplementationBadge status={c.status} />
+                  </span>
                   <span className="text-xs text-slate-500">
                     {c.level === "editar" ? "Edição" : "Visualização"}
                   </span>

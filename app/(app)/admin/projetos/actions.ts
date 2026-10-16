@@ -6,6 +6,9 @@ import { redirect } from "next/navigation";
 import * as z from "zod";
 import { db } from "@/lib/db";
 import {
+  activities,
+  attachments,
+  clientModules,
   clients,
   moduleCatalog,
   moduleTemplateActivities,
@@ -15,6 +18,8 @@ import {
 import { requireAdmin } from "@/lib/auth/dal";
 import { logAudit } from "@/lib/audit";
 import { splitNames } from "@/lib/names";
+import { moveInOrder } from "@/lib/order";
+import { removeUploads } from "@/lib/uploads";
 
 const text = (max = 200) => z.string().trim().min(1).max(max);
 const optionalText = (max = 2000) =>
@@ -185,6 +190,85 @@ export async function copyModulesFrom(formData: FormData) {
   refresh();
 }
 
+/**
+ * Renomeia um módulo do catálogo. Nos clientes que ativaram o módulo e ainda
+ * usam o nome antigo, o nome muda junto (atividades e andamento ficam iguais).
+ */
+export async function renameModule(formData: FormData) {
+  const admin = await requireAdmin();
+  const { moduleId, name } = z
+    .object({ moduleId: id, name: text() })
+    .parse(Object.fromEntries(formData));
+  const newName = name.replace(/\s+/g, " ");
+
+  const [mod] = await db
+    .select()
+    .from(moduleCatalog)
+    .where(eq(moduleCatalog.id, moduleId));
+  if (!mod) throw new Error("Módulo não encontrado.");
+  if (mod.name === newName) return refresh();
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(moduleCatalog)
+      .set({ name: newName })
+      .where(eq(moduleCatalog.id, moduleId));
+    await tx
+      .update(clientModules)
+      .set({ name: newName })
+      .where(
+        and(
+          eq(clientModules.moduleCatalogId, moduleId),
+          eq(clientModules.name, mod.name),
+        ),
+      );
+  });
+  await logAudit(admin.id, "modulo_catalogo", moduleId, "alterar", {
+    de: mod.name,
+    para: newName,
+  });
+  refresh();
+}
+
+/** Sobe ou desce um módulo uma posição no catálogo. */
+export async function moveModule(formData: FormData) {
+  const admin = await requireAdmin();
+  const { moduleId, direction } = z
+    .object({ moduleId: id, direction: z.enum(["up", "down"]) })
+    .parse(Object.fromEntries(formData));
+
+  const [mod] = await db
+    .select({ projectId: moduleCatalog.projectId })
+    .from(moduleCatalog)
+    .where(eq(moduleCatalog.id, moduleId));
+  if (!mod) throw new Error("Módulo não encontrado.");
+  const list = await db
+    .select({ id: moduleCatalog.id })
+    .from(moduleCatalog)
+    .where(eq(moduleCatalog.projectId, mod.projectId))
+    .orderBy(asc(moduleCatalog.position), asc(moduleCatalog.name));
+  const order = moveInOrder(
+    list.map((m) => m.id),
+    moduleId,
+    direction === "up" ? -1 : 1,
+  );
+  if (!order) return refresh();
+
+  // Renumera tudo (0, 1, 2...) para não sobrar posição repetida.
+  await db.transaction(async (tx) => {
+    for (const [position, mid] of order.entries()) {
+      await tx
+        .update(moduleCatalog)
+        .set({ position })
+        .where(eq(moduleCatalog.id, mid));
+    }
+  });
+  await logAudit(admin.id, "modulo_catalogo", moduleId, "alterar", {
+    mover: direction,
+  });
+  refresh();
+}
+
 export async function deleteModule(formData: FormData) {
   const admin = await requireAdmin();
   const moduleId = id.parse(formData.get("moduleId"));
@@ -291,6 +375,18 @@ export async function unlinkClient(formData: FormData) {
   const { projectId, projectClientId } = z
     .object({ projectId: id, projectClientId: id })
     .parse(Object.fromEntries(formData));
+  const files = await db
+    .select({ storagePath: attachments.storagePath })
+    .from(attachments)
+    .innerJoin(activities, eq(activities.id, attachments.activityId))
+    .innerJoin(clientModules, eq(clientModules.id, activities.clientModuleId))
+    .innerJoin(projectClients, eq(projectClients.id, clientModules.projectClientId))
+    .where(
+      and(
+        eq(projectClients.id, projectClientId),
+        eq(projectClients.projectId, projectId),
+      ),
+    );
   // Apaga também os módulos e atividades desse cliente neste projeto (cascata).
   await db
     .delete(projectClients)
@@ -300,6 +396,7 @@ export async function unlinkClient(formData: FormData) {
         eq(projectClients.projectId, projectId),
       ),
     );
+  await removeUploads(files.map((f) => f.storagePath));
   await logAudit(admin.id, "cliente_projeto", projectClientId, "excluir");
   refresh();
 }
