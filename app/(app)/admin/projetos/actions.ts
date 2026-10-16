@@ -296,6 +296,50 @@ export async function addTemplateActivity(formData: FormData) {
   refresh();
 }
 
+/**
+ * Renomeia uma atividade padrão. Nos clientes que ativaram o módulo, as
+ * atividades criadas a partir dela que ainda têm o nome antigo mudam junto.
+ */
+export async function renameTemplateActivity(formData: FormData) {
+  const admin = await requireAdmin();
+  const { templateId, name } = z
+    .object({ templateId: id, name: text() })
+    .parse(Object.fromEntries(formData));
+  const newName = name.replace(/\s+/g, " ");
+
+  const [tpl] = await db
+    .select()
+    .from(moduleTemplateActivities)
+    .where(eq(moduleTemplateActivities.id, templateId));
+  if (!tpl) throw new Error("Atividade padrão não encontrada.");
+  if (tpl.name === newName) return refresh();
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(moduleTemplateActivities)
+      .set({ name: newName })
+      .where(eq(moduleTemplateActivities.id, templateId));
+    const linked = tx
+      .select({ id: clientModules.id })
+      .from(clientModules)
+      .where(eq(clientModules.moduleCatalogId, tpl.moduleCatalogId));
+    await tx
+      .update(activities)
+      .set({ name: newName })
+      .where(
+        and(
+          inArray(activities.clientModuleId, linked),
+          eq(activities.name, tpl.name),
+        ),
+      );
+  });
+  await logAudit(admin.id, "atividade_modelo", templateId, "alterar", {
+    de: tpl.name,
+    para: newName,
+  });
+  refresh();
+}
+
 export async function deleteTemplateActivity(formData: FormData) {
   const admin = await requireAdmin();
   const templateId = id.parse(formData.get("templateId"));

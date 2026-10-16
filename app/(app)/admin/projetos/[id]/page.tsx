@@ -24,6 +24,7 @@ import {
   deleteTemplateActivity,
   moveModule,
   renameModule,
+  renameTemplateActivity,
   unlinkClient,
   updateClient,
   updateProject,
@@ -325,18 +326,41 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
                 .filter((t) => t.moduleCatalogId === m.id)
                 .map((t) => (
                   <li key={t.id}>
-                    <span className="inline-flex items-center gap-2">
-                      {t.name}
-                      <form action={deleteTemplateActivity}>
-                        <input type="hidden" name="templateId" value={t.id} />
+                    {/* O botão "excluir" fica na linha do nome e envia este formulário (atributo form). */}
+                    <form id={`excluir-${t.id}`} action={deleteTemplateActivity} hidden>
+                      <input type="hidden" name="templateId" value={t.id} />
+                    </form>
+                    <details>
+                      <summary className="inline-flex cursor-pointer list-none items-center gap-2">
+                        {t.name}
+                        <span className="text-xs text-blue-700 hover:underline">
+                          renomear
+                        </span>
                         <button
+                          form={`excluir-${t.id}`}
                           className="text-xs text-red-700 hover:underline"
                           aria-label={`Excluir ${t.name}`}
                         >
                           excluir
                         </button>
+                      </summary>
+                      <form
+                        key={t.name}
+                        action={renameTemplateActivity}
+                        className="my-1 flex gap-2"
+                      >
+                        <input type="hidden" name="templateId" value={t.id} />
+                        <input
+                          name="name"
+                          required
+                          maxLength={200}
+                          defaultValue={t.name}
+                          aria-label={`Novo nome de ${t.name}`}
+                          className={`${ui.input} flex-1`}
+                        />
+                        <button className={ui.buttonSecondary}>Salvar</button>
                       </form>
-                    </span>
+                    </details>
                   </li>
                 ))}
             </ol>
