@@ -8,7 +8,13 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 import type { ClientReport } from "@/lib/data/report";
-import { formatDate, priorityLabel, statusLabel, type Status } from "@/lib/labels";
+import {
+  formatDate,
+  implementationStatusLabel,
+  priorityLabel,
+  statusLabel,
+  type Status,
+} from "@/lib/labels";
 import { isOverdue, percentDone } from "@/lib/progress";
 
 // Cores fixas do PDF (mesma família das etiquetas da tela): texto e fundo da etiqueta.
@@ -83,7 +89,7 @@ const s = StyleSheet.create({
   cStatus: { width: 84 },
   cWho: { width: 92, paddingRight: 4 },
   cStart: { width: 52 },
-  cDue: { width: 52 },
+  cDone: { width: 56 },
   pill: {
     alignSelf: "flex-start",
     borderRadius: 6,
@@ -167,7 +173,8 @@ function ClientReportDocument({
           <Text style={s.company}>{report.companyName}</Text>
           <Text style={s.title}>{report.clientName}</Text>
           <Text style={s.subtitle}>
-            {report.projectName} · Andamento da implantação
+            {report.projectName} · Implantação:{" "}
+            {implementationStatusLabel[report.status].toLowerCase()}
           </Text>
         </View>
 
@@ -206,12 +213,11 @@ function ClientReportDocument({
                     <Text style={s.cStatus}>Status</Text>
                     <Text style={s.cWho}>Responsável</Text>
                     <Text style={s.cStart}>Início</Text>
-                    <Text style={s.cDue}>Prazo</Text>
+                    <Text style={s.cDone}>Conclusão</Text>
                   </View>
                 )}
                 {m.activities.map((a, i) => {
                   const color = statusPdfColor[a.status];
-                  const overdue = isOverdue(a.dueDate, a.status, today);
                   return (
                     <View
                       key={a.id}
@@ -247,15 +253,7 @@ function ClientReportDocument({
                           "-"}
                       </Text>
                       <Text style={s.cStart}>{formatDate(a.startDate) || "-"}</Text>
-                      <Text
-                        style={
-                          overdue
-                            ? [s.cDue, { color: red, fontFamily: "Helvetica-Bold" }]
-                            : s.cDue
-                        }
-                      >
-                        {formatDate(a.dueDate) || "-"}
-                      </Text>
+                      <Text style={s.cDone}>{formatDate(a.completedOn) || "-"}</Text>
                     </View>
                   );
                 })}

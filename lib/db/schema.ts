@@ -53,6 +53,13 @@ export const commentVisibility = pgEnum("comment_visibility", [
 
 export const projectType = pgEnum("project_type", ["sistema", "servico"]);
 
+/** Situação da implantação de um cliente num projeto. */
+export const implementationStatus = pgEnum("implementation_status", [
+  "iniciado",
+  "finalizado",
+  "cancelado",
+]);
+
 export const customFieldType = pgEnum("custom_field_type", [
   "texto",
   "texto_longo",
@@ -158,6 +165,7 @@ export const projectClients = pgTable(
     clientId: uuid("client_id")
       .notNull()
       .references(() => clients.id, { onDelete: "cascade" }),
+    status: implementationStatus("status").notNull().default("iniciado"),
     createdAt: createdAt(),
   },
   (t) => [unique("project_clients_unique").on(t.projectId, t.clientId)],
@@ -253,6 +261,8 @@ export const activities = pgTable(
     startDate: date("start_date"),
     dueDate: date("due_date"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    // Data de conclusão que aparece na tela e no PDF (preenchida sozinha, mas editável).
+    completedOn: date("completed_on"),
     position: integer("position").notNull().default(0),
     createdAt: createdAt(),
   },
@@ -308,6 +318,8 @@ export const attachments = pgTable("attachments", {
   }),
   fileName: text("file_name").notNull(),
   storagePath: text("storage_path").notNull(),
+  // Como nos comentários: interno (só equipe) ou visível ao cliente.
+  visibility: commentVisibility("visibility").notNull().default("interno"),
   mimeType: text("mime_type"),
   sizeBytes: integer("size_bytes"),
   createdAt: createdAt(),

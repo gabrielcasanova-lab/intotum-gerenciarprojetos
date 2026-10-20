@@ -22,3 +22,20 @@ export function todayInBrazil(now = new Date()) {
     timeZone: "America/Sao_Paulo",
   }).format(now);
 }
+
+/**
+ * Datas automáticas ao mudar o status de uma atividade:
+ * - saiu de "Não iniciado" e o Início está vazio: Início = hoje;
+ * - Concluído e a Conclusão está vazia: Conclusão = hoje;
+ * - qualquer outro status: Conclusão fica vazia.
+ */
+export function statusDates(
+  status: Status,
+  dates: { startDate: string | null; completedOn: string | null },
+  today: string,
+) {
+  return {
+    startDate: dates.startDate ?? (status === "nao_iniciado" ? null : today),
+    completedOn: status === "concluido" ? (dates.completedOn ?? today) : null,
+  };
+}
