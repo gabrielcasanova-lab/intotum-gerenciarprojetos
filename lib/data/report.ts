@@ -23,6 +23,7 @@ export type ReportActivity = {
   clientContact: string | null;
   startDate: string | null;
   dueDate: string | null;
+  completedOn: string | null;
   comments: { authorName: string | null; createdAt: Date; body: string }[];
 };
 
@@ -63,6 +64,7 @@ export async function loadClientReport(
           clientContact: activities.clientContact,
           startDate: activities.startDate,
           dueDate: activities.dueDate,
+      completedOn: activities.completedOn,
         })
         .from(activities)
         .leftJoin(users, eq(users.id, activities.assigneeUserId))

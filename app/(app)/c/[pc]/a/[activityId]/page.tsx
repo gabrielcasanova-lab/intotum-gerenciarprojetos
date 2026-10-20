@@ -69,7 +69,7 @@ async function ActivityDetail({
       clientContact: activities.clientContact,
       startDate: activities.startDate,
       dueDate: activities.dueDate,
-      completedAt: activities.completedAt,
+      completedOn: activities.completedOn,
       moduleName: clientModules.name,
     })
     .from(activities)
@@ -246,13 +246,21 @@ async function ActivityDetail({
               className={ui.input}
             />
           </label>
-          <div className="flex items-center justify-between gap-2 sm:col-span-2">
+          <label className={ui.label}>
+            Conclusão
+            <input
+              name="completedOn"
+              type="date"
+              defaultValue={activity.completedOn ?? ""}
+              className={ui.input}
+            />
+          </label>
+          <p className="self-end pb-2 text-xs text-slate-500">
+            Datas automáticas: quando a atividade sai de Não iniciado, o Início vazio
+            recebe a data de hoje; quando fica Concluída, a Conclusão vazia também.
+          </p>
+          <div className="sm:col-span-2">
             <button className={ui.button}>Salvar</button>
-            {activity.completedAt && (
-              <span className="text-xs text-slate-500">
-                Concluída em {dateTime.format(activity.completedAt)}
-              </span>
-            )}
           </div>
         </form>
       ) : (
@@ -278,6 +286,10 @@ async function ActivityDetail({
           <div>
             <dt className="text-slate-500">Prazo</dt>
             <dd>{formatDate(activity.dueDate) || "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">Conclusão</dt>
+            <dd>{formatDate(activity.completedOn) || "—"}</dd>
           </div>
           {activity.description && (
             <div className="sm:col-span-2">

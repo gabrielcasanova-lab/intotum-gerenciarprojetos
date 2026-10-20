@@ -261,6 +261,8 @@ export const activities = pgTable(
     startDate: date("start_date"),
     dueDate: date("due_date"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    // Data de conclusão que aparece na tela e no PDF (preenchida sozinha, mas editável).
+    completedOn: date("completed_on"),
     position: integer("position").notNull().default(0),
     createdAt: createdAt(),
   },

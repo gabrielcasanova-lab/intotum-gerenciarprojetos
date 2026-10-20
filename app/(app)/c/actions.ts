@@ -21,6 +21,7 @@ import { getClientAccess } from "@/lib/data/access";
 import { logAudit } from "@/lib/audit";
 import { IMPLEMENTATION_STATUSES, PRIORITIES, STATUSES } from "@/lib/labels";
 import { moveInOrder } from "@/lib/order";
+import { statusDates, todayInBrazil } from "@/lib/progress";
 import { MAX_UPLOAD_BYTES, removeUploads, saveUpload } from "@/lib/uploads";
 
 const id = z.guid();
@@ -56,6 +57,16 @@ async function findActivity(projectClientId: string, activityId: string) {
     );
   if (!row) throw new Error("Atividade não encontrada.");
   return row;
+}
+
+/** Registro de quando foi concluída (mantém o original se já estava concluída). */
+function completedAtFor(
+  status: string,
+  current: { status: string; completedAt: Date | null },
+  now: Date,
+) {
+  if (status !== "concluido") return null;
+  return current.status === "concluido" ? current.completedAt : now;
 }
 
 async function nextActivityPosition(clientModuleId: string) {
@@ -299,12 +310,23 @@ export async function updateStatus(formData: FormData) {
     .parse(Object.fromEntries(formData));
   const { user } = await requireEdit(data.projectClientId);
   await findActivity(data.projectClientId, data.activityId);
+  const [current] = await db
+    .select({
+      status: activities.status,
+      completedAt: activities.completedAt,
+      startDate: activities.startDate,
+      completedOn: activities.completedOn,
+    })
+    .from(activities)
+    .where(eq(activities.id, data.activityId));
 
+  const now = new Date();
   await db
     .update(activities)
     .set({
       status: data.status,
-      completedAt: data.status === "concluido" ? new Date() : null,
+      ...statusDates(data.status, current, todayInBrazil(now)),
+      completedAt: completedAtFor(data.status, current, now),
     })
     .where(eq(activities.id, data.activityId));
   await logAudit(user.id, "atividade", data.activityId, "alterar", {
@@ -326,6 +348,7 @@ export async function updateActivity(formData: FormData) {
       clientContact: optionalText(200),
       startDate: optionalDate,
       dueDate: optionalDate,
+      completedOn: optionalDate,
     })
     .parse(Object.fromEntries(formData));
   const { user } = await requireEdit(data.projectClientId);
@@ -337,17 +360,14 @@ export async function updateActivity(formData: FormData) {
     .from(activities)
     .where(eq(activities.id, activityId));
 
+  const now = new Date();
   await db
     .update(activities)
     .set({
       ...values,
-      // Data de conclusão automática ao marcar Concluído (mantém a original se já estava).
-      completedAt:
-        values.status === "concluido"
-          ? current.status === "concluido"
-            ? current.completedAt
-            : new Date()
-          : null,
+      // Início e Conclusão vazios são preenchidos com hoje conforme o status.
+      ...statusDates(values.status, values, todayInBrazil(now)),
+      completedAt: completedAtFor(values.status, current, now),
     })
     .where(eq(activities.id, activityId));
   await logAudit(user.id, "atividade", activityId, "alterar", values);
