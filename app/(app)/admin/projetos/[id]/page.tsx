@@ -30,6 +30,49 @@ import {
   updateProject,
 } from "../actions";
 
+/** Uma atividade padrão do catálogo: nome, renomear e excluir. */
+function TemplateItem({ t }: { t: { id: string; name: string } }) {
+  return (
+    <div>
+      {/* O botão "excluir" fica na linha do nome e envia este formulário (atributo form). */}
+      <form id={`excluir-${t.id}`} action={deleteTemplateActivity} hidden>
+        <input type="hidden" name="templateId" value={t.id} />
+      </form>
+      <details>
+        <summary className="inline-flex cursor-pointer list-none items-center gap-2">
+          {t.name}
+          <span className="text-xs text-blue-700 hover:underline">
+            renomear
+          </span>
+          <button
+            form={`excluir-${t.id}`}
+            className="text-xs text-red-700 hover:underline"
+            aria-label={`Excluir ${t.name}`}
+          >
+            excluir
+          </button>
+        </summary>
+        <form
+          key={t.name}
+          action={renameTemplateActivity}
+          className="my-1 flex gap-2"
+        >
+          <input type="hidden" name="templateId" value={t.id} />
+          <input
+            name="name"
+            required
+            maxLength={200}
+            defaultValue={t.name}
+            aria-label={`Novo nome de ${t.name}`}
+            className={`${ui.input} flex-1`}
+          />
+          <button className={ui.buttonSecondary}>Salvar</button>
+        </form>
+      </details>
+    </div>
+  );
+}
+
 async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
   await requireAdmin();
   const { id } = await params;
@@ -48,6 +91,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
       .select({
         id: moduleTemplateActivities.id,
         moduleCatalogId: moduleTemplateActivities.moduleCatalogId,
+        parentId: moduleTemplateActivities.parentId,
         name: moduleTemplateActivities.name,
       })
       .from(moduleTemplateActivities)
@@ -323,56 +367,54 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
             </details>
             <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
               {templates
-                .filter((t) => t.moduleCatalogId === m.id)
-                .map((t) => (
-                  <li key={t.id}>
-                    {/* O botão "excluir" fica na linha do nome e envia este formulário (atributo form). */}
-                    <form id={`excluir-${t.id}`} action={deleteTemplateActivity} hidden>
-                      <input type="hidden" name="templateId" value={t.id} />
-                    </form>
-                    <details>
-                      <summary className="inline-flex cursor-pointer list-none items-center gap-2">
-                        {t.name}
-                        <span className="text-xs text-blue-700 hover:underline">
-                          renomear
-                        </span>
-                        <button
-                          form={`excluir-${t.id}`}
-                          className="text-xs text-red-700 hover:underline"
-                          aria-label={`Excluir ${t.name}`}
-                        >
-                          excluir
-                        </button>
-                      </summary>
-                      <form
-                        key={t.name}
-                        action={renameTemplateActivity}
-                        className="my-1 flex gap-2"
-                      >
-                        <input type="hidden" name="templateId" value={t.id} />
-                        <input
-                          name="name"
-                          required
-                          maxLength={200}
-                          defaultValue={t.name}
-                          aria-label={`Novo nome de ${t.name}`}
-                          className={`${ui.input} flex-1`}
-                        />
-                        <button className={ui.buttonSecondary}>Salvar</button>
-                      </form>
-                    </details>
-                  </li>
-                ))}
+                .filter((t) => t.moduleCatalogId === m.id && !t.parentId)
+                .map((t) => {
+                  const subs = templates.filter((sub) => sub.parentId === t.id);
+                  return (
+                    <li key={t.id}>
+                      <TemplateItem t={t} />
+                      {subs.length > 0 && (
+                        <ul className="mt-1 flex flex-col gap-1 pl-4">
+                          {subs.map((sub) => (
+                            <li key={sub.id} className="flex gap-1">
+                              <span className="text-slate-400">↳</span>
+                              <TemplateItem t={sub} />
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
             </ol>
-            <form action={addTemplateActivity} className="flex gap-2">
+            <form action={addTemplateActivity} className="flex flex-wrap gap-2">
               <input type="hidden" name="moduleCatalogId" value={m.id} />
               <input
                 name="name"
                 required
                 maxLength={200}
                 placeholder="Nova atividade padrão"
-                className={`${ui.input} flex-1`}
+                aria-label={`Nova atividade padrão em ${m.name}`}
+                className={`${ui.input} min-w-48 flex-1`}
               />
+              {project.allowSubactivities &&
+                templates.some((t) => t.moduleCatalogId === m.id && !t.parentId) && (
+                  <select
+                    name="parentId"
+                    defaultValue=""
+                    aria-label={`Dentro de (${m.name})`}
+                    className={ui.input}
+                  >
+                    <option value="">Atividade principal</option>
+                    {templates
+                      .filter((t) => t.moduleCatalogId === m.id && !t.parentId)
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          Subatividade de: {t.name}
+                        </option>
+                      ))}
+                  </select>
+                )}
               <button className={ui.buttonSecondary}>Adicionar</button>
             </form>
           </div>

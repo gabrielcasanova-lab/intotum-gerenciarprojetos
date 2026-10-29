@@ -1,0 +1,2 @@
+ALTER TABLE "module_template_activities" ADD COLUMN "parent_id" uuid;--> statement-breakpoint
+ALTER TABLE "module_template_activities" ADD CONSTRAINT "module_template_activities_parent_id_module_template_activities_id_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."module_template_activities"("id") ON DELETE cascade ON UPDATE no action;

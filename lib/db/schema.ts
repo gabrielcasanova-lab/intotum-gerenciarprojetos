@@ -217,6 +217,11 @@ export const moduleTemplateActivities = pgTable("module_template_activities", {
   moduleCatalogId: uuid("module_catalog_id")
     .notNull()
     .references(() => moduleCatalog.id, { onDelete: "cascade" }),
+  // Subatividade padrão: aponta para a atividade padrão principal do mesmo módulo.
+  parentId: uuid("parent_id").references(
+    (): AnyPgColumn => moduleTemplateActivities.id,
+    { onDelete: "cascade" },
+  ),
   name: text("name").notNull(),
   description: text("description"),
   position: integer("position").notNull().default(0),

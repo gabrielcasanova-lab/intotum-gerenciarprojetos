@@ -21,6 +21,7 @@ import { getClientAccess } from "@/lib/data/access";
 import { logAudit } from "@/lib/audit";
 import { IMPLEMENTATION_STATUSES, PRIORITIES, STATUSES } from "@/lib/labels";
 import { moveInOrder } from "@/lib/order";
+import { copyTree } from "@/lib/tree";
 import { statusDates, todayInBrazil } from "@/lib/progress";
 import { MAX_UPLOAD_BYTES, removeUploads, saveUpload } from "@/lib/uploads";
 
@@ -128,13 +129,19 @@ export async function activateModule(formData: FormData) {
         .from(moduleTemplateActivities)
         .where(eq(moduleTemplateActivities.moduleCatalogId, catalogId))
         .orderBy(asc(moduleTemplateActivities.position));
-      if (templates.length) {
+      // Subatividades padrão viram subatividades do cliente (pais gravados antes).
+      const position = new Map(templates.map((t, i) => [t.id, i]));
+      const { parents, children } = copyTree(templates, () => crypto.randomUUID());
+      for (const group of [parents, children]) {
+        if (group.length === 0) continue;
         await tx.insert(activities).values(
-          templates.map((t, i) => ({
+          group.map((r) => ({
+            id: r.id,
             clientModuleId: cm.id,
-            name: t.name,
-            description: t.description,
-            position: i,
+            parentId: r.parentId,
+            name: r.item.name,
+            description: r.item.description,
+            position: position.get(r.item.id)!,
           })),
         );
       }
