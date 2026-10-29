@@ -26,6 +26,7 @@ import { isOverdue, percentDone, todayInBrazil } from "@/lib/progress";
 import * as ui from "@/lib/ui/styles";
 import { AutoSubmitSelect } from "@/components/auto-submit-select";
 import { ConfirmButton } from "@/components/confirm-button";
+import { StickySelect } from "@/components/sticky-select";
 import { ImplementationBadge } from "@/components/implementation-badge";
 import { MoveButtons } from "@/components/move-buttons";
 import {
@@ -334,7 +335,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                   className={`${ui.input} min-w-48 flex-1`}
                 />
                 {access.allowSubactivities && top.length > 0 ? (
-                  <select
+                  <StickySelect
                     name="parentId"
                     defaultValue=""
                     aria-label="Dentro de"
@@ -346,7 +347,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                         Subatividade de: {a.name}
                       </option>
                     ))}
-                  </select>
+                  </StickySelect>
                 ) : (
                   <input type="hidden" name="parentId" value="" />
                 )}

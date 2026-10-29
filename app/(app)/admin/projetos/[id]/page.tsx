@@ -14,6 +14,7 @@ import { requireAdmin } from "@/lib/auth/dal";
 import { isUuid } from "@/lib/data/access";
 import * as ui from "@/lib/ui/styles";
 import { ConfirmButton } from "@/components/confirm-button";
+import { StickySelect } from "@/components/sticky-select";
 import { MoveButtons } from "@/components/move-buttons";
 import {
   addClientToProject,
@@ -399,7 +400,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
               />
               {project.allowSubactivities &&
                 templates.some((t) => t.moduleCatalogId === m.id && !t.parentId) && (
-                  <select
+                  <StickySelect
                     name="parentId"
                     defaultValue=""
                     aria-label={`Dentro de (${m.name})`}
@@ -413,7 +414,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
                           Subatividade de: {t.name}
                         </option>
                       ))}
-                  </select>
+                  </StickySelect>
                 )}
               <button className={ui.buttonSecondary}>Adicionar</button>
             </form>
