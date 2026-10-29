@@ -8,6 +8,7 @@ import {
   projects,
 } from "@/lib/db/schema";
 import { accessLevel, type Grant, type Level } from "@/lib/permissions";
+import type { ImplementationStatus } from "@/lib/labels";
 import type { SessionUser } from "@/lib/auth/session";
 
 export async function loadGrants(userId: string): Promise<Grant[]> {
@@ -28,6 +29,7 @@ export type ClientAccess = {
   allowSubactivities: boolean;
   clientId: string;
   clientName: string;
+  status: ImplementationStatus;
   level: Level;
 };
 
@@ -50,6 +52,7 @@ export async function getClientAccess(
       allowSubactivities: projects.allowSubactivities,
       clientId: clients.id,
       clientName: clients.name,
+      status: projectClients.status,
     })
     .from(projectClients)
     .innerJoin(projects, eq(projects.id, projectClients.projectId))
@@ -74,6 +77,7 @@ export type VisibleClient = {
   projectId: string;
   projectName: string;
   clientName: string;
+  status: ImplementationStatus;
   level: Level;
 };
 
@@ -89,6 +93,7 @@ export async function listVisibleClients(
         projectId: projects.id,
         projectName: projects.name,
         clientName: clients.name,
+        status: projectClients.status,
       })
       .from(projectClients)
       .innerJoin(projects, eq(projects.id, projectClients.projectId))

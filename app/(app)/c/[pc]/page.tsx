@@ -14,6 +14,9 @@ import { getCurrentUser } from "@/lib/auth/dal";
 import { getClientAccess } from "@/lib/data/access";
 import {
   formatDate,
+  IMPLEMENTATION_STATUSES,
+  implementationStatusColor,
+  implementationStatusLabel,
   statusColor,
   statusLabel,
   STATUSES,
@@ -23,13 +26,19 @@ import { isOverdue, percentDone, todayInBrazil } from "@/lib/progress";
 import * as ui from "@/lib/ui/styles";
 import { AutoSubmitSelect } from "@/components/auto-submit-select";
 import { ConfirmButton } from "@/components/confirm-button";
+import { StickySelect } from "@/components/sticky-select";
+import { ImplementationBadge } from "@/components/implementation-badge";
+import { MoveButtons } from "@/components/move-buttons";
 import {
   activateModule,
   addActivity,
   addTrainingVideo,
   deleteActivity,
   deleteTrainingVideo,
+  moveClientModule,
   removeClientModule,
+  renameClientModule,
+  updateImplementationStatus,
   updateStatus,
 } from "../actions";
 
@@ -193,6 +202,26 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
         <h1 className="mt-1 text-2xl font-semibold">{access.clientName}</h1>
         <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
           <span>{access.projectName}</span>
+          {editable ? (
+            <form key={access.status} action={updateImplementationStatus}>
+              <input type="hidden" name="projectClientId" value={pc} />
+              <AutoSubmitSelect
+                name="status"
+                defaultValue={access.status}
+                aria-label="Situação da implantação"
+                title="Situação da implantação"
+                className={`rounded-full border-0 px-2 py-0.5 text-xs ${implementationStatusColor[access.status]}`}
+              >
+                {IMPLEMENTATION_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {implementationStatusLabel[s]}
+                  </option>
+                ))}
+              </AutoSubmitSelect>
+            </form>
+          ) : (
+            <ImplementationBadge status={access.status} />
+          )}
           {rows.length > 0 && <ProgressBar value={overall} />}
           {/* Link comum (não Link): o navegador abre o PDF numa aba nova. */}
           <a
@@ -220,13 +249,24 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
         </p>
       )}
 
-      {modules.map((m) => {
+      {modules.map((m, i) => {
         const list = byModule.get(m.id) ?? [];
         const top = list.filter((a) => !a.parentId);
         return (
           <section key={m.id} className={`${ui.card} p-4`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold">{m.name}</h2>
+              <div className="flex items-center gap-2">
+                {editable && (
+                  <MoveButtons
+                    action={moveClientModule}
+                    fields={{ projectClientId: pc, clientModuleId: m.id }}
+                    name={m.name}
+                    first={i === 0}
+                    last={i === modules.length - 1}
+                  />
+                )}
+                <h2 className="text-lg font-semibold">{m.name}</h2>
+              </div>
               <div className="flex items-center gap-3">
                 {list.length > 0 && (
                   <ProgressBar value={percentDone(list.map((a) => a.status))} />
@@ -245,6 +285,31 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                 )}
               </div>
             </div>
+
+            {editable && (
+              <details className="mt-1">
+                <summary className="cursor-pointer text-xs text-blue-700 hover:underline">
+                  Renomear módulo
+                </summary>
+                <form
+                  key={m.name}
+                  action={renameClientModule}
+                  className="mt-2 flex gap-2"
+                >
+                  <input type="hidden" name="projectClientId" value={pc} />
+                  <input type="hidden" name="clientModuleId" value={m.id} />
+                  <input
+                    name="name"
+                    required
+                    maxLength={200}
+                    defaultValue={m.name}
+                    aria-label={`Novo nome de ${m.name}`}
+                    className={`${ui.input} flex-1`}
+                  />
+                  <button className={ui.buttonSecondary}>Salvar nome</button>
+                </form>
+              </details>
+            )}
 
             {top.length > 0 ? (
               <ul className="mt-2 divide-y divide-slate-100">
@@ -270,7 +335,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                   className={`${ui.input} min-w-48 flex-1`}
                 />
                 {access.allowSubactivities && top.length > 0 ? (
-                  <select
+                  <StickySelect
                     name="parentId"
                     defaultValue=""
                     aria-label="Dentro de"
@@ -282,7 +347,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                         Subatividade de: {a.name}
                       </option>
                     ))}
-                  </select>
+                  </StickySelect>
                 ) : (
                   <input type="hidden" name="parentId" value="" />
                 )}
@@ -366,26 +431,45 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
       {editable && (
         <form
           action={activateModule}
-          className={`${ui.card} flex flex-wrap items-end gap-3 p-4`}
+          className={`${ui.card} flex flex-col gap-3 p-4`}
         >
           <input type="hidden" name="projectClientId" value={pc} />
-          <label className={`${ui.label} min-w-48 flex-1`}>
-            Ativar módulo do catálogo
-            <select name="moduleCatalogId" defaultValue="" className={ui.input}>
-              <option value="">— módulo avulso (use o nome ao lado) —</option>
-              {catalog.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {usedCatalog.has(c.id) ? " (já ativado)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={`${ui.label} min-w-48 flex-1`}>
-            Nome do módulo avulso
-            <input name="name" maxLength={200} className={ui.input} />
-          </label>
-          <button className={ui.button}>Ativar módulo</button>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-2 text-sm font-medium">
+              Ativar módulos do catálogo (marque um ou vários)
+            </legend>
+            {catalog.length > 0 ? (
+              <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+                {catalog.map((c) => {
+                  const used = usedCatalog.has(c.id);
+                  return (
+                    <label
+                      key={c.id}
+                      className={`flex items-center gap-2 text-sm ${used ? "text-slate-400" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        name="moduleCatalogId"
+                        value={c.id}
+                        disabled={used}
+                      />
+                      {c.name}
+                      {used && <span className="text-xs">(já ativado)</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">O catálogo deste projeto está vazio.</p>
+            )}
+          </fieldset>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className={`${ui.label} min-w-48 flex-1`}>
+              Módulo avulso (opcional, fora do catálogo)
+              <input name="name" maxLength={200} className={ui.input} />
+            </label>
+            <button className={ui.button}>Ativar módulos</button>
+          </div>
         </form>
       )}
     </div>

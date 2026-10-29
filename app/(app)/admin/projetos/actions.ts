@@ -6,6 +6,9 @@ import { redirect } from "next/navigation";
 import * as z from "zod";
 import { db } from "@/lib/db";
 import {
+  activities,
+  attachments,
+  clientModules,
   clients,
   moduleCatalog,
   moduleTemplateActivities,
@@ -15,6 +18,9 @@ import {
 import { requireAdmin } from "@/lib/auth/dal";
 import { logAudit } from "@/lib/audit";
 import { splitNames } from "@/lib/names";
+import { moveInOrder } from "@/lib/order";
+import { copyTree } from "@/lib/tree";
+import { removeUploads } from "@/lib/uploads";
 
 const text = (max = 200) => z.string().trim().min(1).max(max);
 const optionalText = (max = 2000) =>
@@ -166,13 +172,17 @@ export async function copyModulesFrom(formData: FormData) {
         .values({ projectId, name: m.name, position: first + i })
         .returning({ id: moduleCatalog.id });
       const list = templates.filter((t) => t.moduleCatalogId === m.id);
-      if (list.length) {
+      const { parents, children } = copyTree(list, () => crypto.randomUUID());
+      for (const group of [parents, children]) {
+        if (group.length === 0) continue;
         await tx.insert(moduleTemplateActivities).values(
-          list.map((t) => ({
+          group.map((r) => ({
+            id: r.id,
             moduleCatalogId: mod.id,
-            name: t.name,
-            description: t.description,
-            position: t.position,
+            parentId: r.parentId,
+            name: r.item.name,
+            description: r.item.description,
+            position: r.item.position,
           })),
         );
       }
@@ -181,6 +191,85 @@ export async function copyModulesFrom(formData: FormData) {
   await logAudit(admin.id, "projeto", projectId, "alterar", {
     copiouModulosDe: sourceProjectId,
     modulos: toCopy.map((m) => m.name),
+  });
+  refresh();
+}
+
+/**
+ * Renomeia um módulo do catálogo. Nos clientes que ativaram o módulo e ainda
+ * usam o nome antigo, o nome muda junto (atividades e andamento ficam iguais).
+ */
+export async function renameModule(formData: FormData) {
+  const admin = await requireAdmin();
+  const { moduleId, name } = z
+    .object({ moduleId: id, name: text() })
+    .parse(Object.fromEntries(formData));
+  const newName = name.replace(/\s+/g, " ");
+
+  const [mod] = await db
+    .select()
+    .from(moduleCatalog)
+    .where(eq(moduleCatalog.id, moduleId));
+  if (!mod) throw new Error("Módulo não encontrado.");
+  if (mod.name === newName) return refresh();
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(moduleCatalog)
+      .set({ name: newName })
+      .where(eq(moduleCatalog.id, moduleId));
+    await tx
+      .update(clientModules)
+      .set({ name: newName })
+      .where(
+        and(
+          eq(clientModules.moduleCatalogId, moduleId),
+          eq(clientModules.name, mod.name),
+        ),
+      );
+  });
+  await logAudit(admin.id, "modulo_catalogo", moduleId, "alterar", {
+    de: mod.name,
+    para: newName,
+  });
+  refresh();
+}
+
+/** Sobe ou desce um módulo uma posição no catálogo. */
+export async function moveModule(formData: FormData) {
+  const admin = await requireAdmin();
+  const { moduleId, direction } = z
+    .object({ moduleId: id, direction: z.enum(["up", "down"]) })
+    .parse(Object.fromEntries(formData));
+
+  const [mod] = await db
+    .select({ projectId: moduleCatalog.projectId })
+    .from(moduleCatalog)
+    .where(eq(moduleCatalog.id, moduleId));
+  if (!mod) throw new Error("Módulo não encontrado.");
+  const list = await db
+    .select({ id: moduleCatalog.id })
+    .from(moduleCatalog)
+    .where(eq(moduleCatalog.projectId, mod.projectId))
+    .orderBy(asc(moduleCatalog.position), asc(moduleCatalog.name));
+  const order = moveInOrder(
+    list.map((m) => m.id),
+    moduleId,
+    direction === "up" ? -1 : 1,
+  );
+  if (!order) return refresh();
+
+  // Renumera tudo (0, 1, 2...) para não sobrar posição repetida.
+  await db.transaction(async (tx) => {
+    for (const [position, mid] of order.entries()) {
+      await tx
+        .update(moduleCatalog)
+        .set({ position })
+        .where(eq(moduleCatalog.id, mid));
+    }
+  });
+  await logAudit(admin.id, "modulo_catalogo", moduleId, "alterar", {
+    mover: direction,
   });
   refresh();
 }
@@ -196,9 +285,39 @@ export async function deleteModule(formData: FormData) {
 
 export async function addTemplateActivity(formData: FormData) {
   const admin = await requireAdmin();
-  const { moduleCatalogId, name } = z
-    .object({ moduleCatalogId: id, name: text() })
+  const { moduleCatalogId, name, parentId } = z
+    .object({
+      moduleCatalogId: id,
+      name: text(),
+      parentId: z
+        .union([id, z.literal("")])
+        .optional()
+        .transform((v) => v || null),
+    })
     .parse(Object.fromEntries(formData));
+
+  if (parentId) {
+    // A principal precisa ser do mesmo módulo, não ser ela mesma uma subatividade,
+    // e o projeto precisa permitir subatividades.
+    const [parent] = await db
+      .select({
+        parentId: moduleTemplateActivities.parentId,
+        allowSubactivities: projects.allowSubactivities,
+      })
+      .from(moduleTemplateActivities)
+      .innerJoin(moduleCatalog, eq(moduleCatalog.id, moduleTemplateActivities.moduleCatalogId))
+      .innerJoin(projects, eq(projects.id, moduleCatalog.projectId))
+      .where(
+        and(
+          eq(moduleTemplateActivities.id, parentId),
+          eq(moduleTemplateActivities.moduleCatalogId, moduleCatalogId),
+        ),
+      );
+    if (!parent || parent.parentId) throw new Error("Atividade principal inválida.");
+    if (!parent.allowSubactivities) {
+      throw new Error("Este projeto não permite subatividades.");
+    }
+  }
 
   const position = await nextPosition(
     moduleTemplateActivities,
@@ -206,9 +325,53 @@ export async function addTemplateActivity(formData: FormData) {
   );
   const [row] = await db
     .insert(moduleTemplateActivities)
-    .values({ moduleCatalogId, name, position })
+    .values({ moduleCatalogId, parentId, name, position })
     .returning();
-  await logAudit(admin.id, "atividade_modelo", row.id, "criar", { name });
+  await logAudit(admin.id, "atividade_modelo", row.id, "criar", { name, parentId });
+  refresh();
+}
+
+/**
+ * Renomeia uma atividade padrão. Nos clientes que ativaram o módulo, as
+ * atividades criadas a partir dela que ainda têm o nome antigo mudam junto.
+ */
+export async function renameTemplateActivity(formData: FormData) {
+  const admin = await requireAdmin();
+  const { templateId, name } = z
+    .object({ templateId: id, name: text() })
+    .parse(Object.fromEntries(formData));
+  const newName = name.replace(/\s+/g, " ");
+
+  const [tpl] = await db
+    .select()
+    .from(moduleTemplateActivities)
+    .where(eq(moduleTemplateActivities.id, templateId));
+  if (!tpl) throw new Error("Atividade padrão não encontrada.");
+  if (tpl.name === newName) return refresh();
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(moduleTemplateActivities)
+      .set({ name: newName })
+      .where(eq(moduleTemplateActivities.id, templateId));
+    const linked = tx
+      .select({ id: clientModules.id })
+      .from(clientModules)
+      .where(eq(clientModules.moduleCatalogId, tpl.moduleCatalogId));
+    await tx
+      .update(activities)
+      .set({ name: newName })
+      .where(
+        and(
+          inArray(activities.clientModuleId, linked),
+          eq(activities.name, tpl.name),
+        ),
+      );
+  });
+  await logAudit(admin.id, "atividade_modelo", templateId, "alterar", {
+    de: tpl.name,
+    para: newName,
+  });
   refresh();
 }
 
@@ -291,6 +454,18 @@ export async function unlinkClient(formData: FormData) {
   const { projectId, projectClientId } = z
     .object({ projectId: id, projectClientId: id })
     .parse(Object.fromEntries(formData));
+  const files = await db
+    .select({ storagePath: attachments.storagePath })
+    .from(attachments)
+    .innerJoin(activities, eq(activities.id, attachments.activityId))
+    .innerJoin(clientModules, eq(clientModules.id, activities.clientModuleId))
+    .innerJoin(projectClients, eq(projectClients.id, clientModules.projectClientId))
+    .where(
+      and(
+        eq(projectClients.id, projectClientId),
+        eq(projectClients.projectId, projectId),
+      ),
+    );
   // Apaga também os módulos e atividades desse cliente neste projeto (cascata).
   await db
     .delete(projectClients)
@@ -300,6 +475,7 @@ export async function unlinkClient(formData: FormData) {
         eq(projectClients.projectId, projectId),
       ),
     );
+  await removeUploads(files.map((f) => f.storagePath));
   await logAudit(admin.id, "cliente_projeto", projectClientId, "excluir");
   refresh();
 }

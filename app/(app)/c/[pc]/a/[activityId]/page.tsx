@@ -3,7 +3,13 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { activities, clientModules, comments, users } from "@/lib/db/schema";
+import {
+  activities,
+  attachments,
+  clientModules,
+  comments,
+  users,
+} from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/auth/dal";
 import { getClientAccess, isUuid } from "@/lib/data/access";
 import { visibleCommentTypes } from "@/lib/permissions";
@@ -16,8 +22,22 @@ import {
   STATUSES,
 } from "@/lib/labels";
 import * as ui from "@/lib/ui/styles";
+import { MAX_UPLOAD_BYTES } from "@/lib/uploads";
 import { ConfirmButton } from "@/components/confirm-button";
-import { addComment, deleteActivity, updateActivity } from "../../../actions";
+import { FileInput } from "@/components/file-input";
+import {
+  addComment,
+  deleteActivity,
+  deleteAttachment,
+  updateActivity,
+  uploadAttachment,
+} from "../../../actions";
+
+function fileSize(bytes: number | null) {
+  if (bytes === null) return "";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
+}
 
 const dateTime = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short",
@@ -49,7 +69,7 @@ async function ActivityDetail({
       clientContact: activities.clientContact,
       startDate: activities.startDate,
       dueDate: activities.dueDate,
-      completedAt: activities.completedAt,
+      completedOn: activities.completedOn,
       moduleName: clientModules.name,
     })
     .from(activities)
@@ -59,7 +79,7 @@ async function ActivityDetail({
     );
   if (!activity) notFound();
 
-  const [commentRows, team, parent] = await Promise.all([
+  const [commentRows, team, parent, files] = await Promise.all([
     db
       .select({
         id: comments.id,
@@ -91,6 +111,24 @@ async function ActivityDetail({
           .where(eq(activities.id, activity.parentId))
           .then((r) => r[0])
       : Promise.resolve(undefined),
+    db
+      .select({
+        id: attachments.id,
+        fileName: attachments.fileName,
+        visibility: attachments.visibility,
+        sizeBytes: attachments.sizeBytes,
+        createdAt: attachments.createdAt,
+        uploaderName: users.name,
+      })
+      .from(attachments)
+      .leftJoin(users, eq(users.id, attachments.uploadedBy))
+      .where(
+        and(
+          eq(attachments.activityId, activityId),
+          inArray(attachments.visibility, visibleCommentTypes(user.role)),
+        ),
+      )
+      .orderBy(asc(attachments.createdAt)),
   ]);
 
   const sections = visibleCommentTypes(user.role).map((v) => ({
@@ -208,13 +246,21 @@ async function ActivityDetail({
               className={ui.input}
             />
           </label>
-          <div className="flex items-center justify-between gap-2 sm:col-span-2">
+          <label className={ui.label}>
+            Conclusão
+            <input
+              name="completedOn"
+              type="date"
+              defaultValue={activity.completedOn ?? ""}
+              className={ui.input}
+            />
+          </label>
+          <p className="self-end pb-2 text-xs text-slate-500">
+            Datas automáticas: quando a atividade sai de Não iniciado, o Início vazio
+            recebe a data de hoje; quando fica Concluída, a Conclusão vazia também.
+          </p>
+          <div className="sm:col-span-2">
             <button className={ui.button}>Salvar</button>
-            {activity.completedAt && (
-              <span className="text-xs text-slate-500">
-                Concluída em {dateTime.format(activity.completedAt)}
-              </span>
-            )}
           </div>
         </form>
       ) : (
@@ -241,6 +287,10 @@ async function ActivityDetail({
             <dt className="text-slate-500">Prazo</dt>
             <dd>{formatDate(activity.dueDate) || "—"}</dd>
           </div>
+          <div>
+            <dt className="text-slate-500">Conclusão</dt>
+            <dd>{formatDate(activity.completedOn) || "—"}</dd>
+          </div>
           {activity.description && (
             <div className="sm:col-span-2">
               <dt className="text-slate-500">Descrição</dt>
@@ -249,6 +299,82 @@ async function ActivityDetail({
           )}
         </dl>
       )}
+
+      <section className="flex flex-col gap-2">
+        <h2 className="text-lg font-semibold">Anexos</h2>
+        {files.length > 0 ? (
+          <ul className={`${ui.card} divide-y divide-slate-100`}>
+            {files.map((f) => (
+              <li key={f.id} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm">
+                {/* Link comum: o arquivo abre (PDF/imagem) ou é baixado. */}
+                <a
+                  href={`/c/${pc}/anexos/${f.id}`}
+                  target="_blank"
+                  rel="noopener"
+                  className="min-w-0 flex-1 break-all text-blue-700 hover:underline"
+                >
+                  📎 {f.fileName}
+                </a>
+                <span className="text-xs text-slate-500">
+                  {fileSize(f.sizeBytes)} · {f.uploaderName ?? "Usuário removido"} ·{" "}
+                  {dateTime.format(f.createdAt)}
+                </span>
+                {user.role !== "cliente" && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs ${
+                      f.visibility === "interno"
+                        ? "bg-slate-100 text-slate-600"
+                        : "bg-blue-100 text-blue-800"
+                    }`}
+                  >
+                    {f.visibility === "interno" ? "Interno" : "Cliente vê"}
+                  </span>
+                )}
+                {editable && (
+                  <form action={deleteAttachment}>
+                    <input type="hidden" name="projectClientId" value={pc} />
+                    <input type="hidden" name="activityId" value={activity.id} />
+                    <input type="hidden" name="attachmentId" value={f.id} />
+                    <ConfirmButton
+                      className="rounded px-1.5 text-slate-400 hover:bg-red-50 hover:text-red-700"
+                      aria-label={`Excluir ${f.fileName}`}
+                      title="Excluir anexo"
+                      message={`Excluir o anexo "${f.fileName}"?`}
+                    >
+                      ×
+                    </ConfirmButton>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-slate-500">Nenhum anexo.</p>
+        )}
+        {editable && (
+          <form action={uploadAttachment} className="flex flex-wrap items-end gap-2">
+            <input type="hidden" name="projectClientId" value={pc} />
+            <input type="hidden" name="activityId" value={activity.id} />
+            <label className={`${ui.label} min-w-48 flex-1`}>
+              Arquivo (até 20 MB)
+              <FileInput
+                name="file"
+                required
+                maxBytes={MAX_UPLOAD_BYTES}
+                className={ui.input}
+              />
+            </label>
+            <label className={ui.label}>
+              Quem vê
+              <select name="visibility" defaultValue="interno" className={ui.input}>
+                <option value="interno">Só a equipe</option>
+                <option value="cliente">Equipe e cliente</option>
+              </select>
+            </label>
+            <button className={ui.buttonSecondary}>Anexar</button>
+          </form>
+        )}
+      </section>
 
       {sections.map((s) => (
         <section key={s.visibility} className="flex flex-col gap-2">

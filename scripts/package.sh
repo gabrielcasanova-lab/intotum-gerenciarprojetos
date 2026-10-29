@@ -43,6 +43,8 @@ console.error = (...args) => {
   log(util.format(...args));
   consoleError(...args);
 };
+// Anexos ficam em intotum-projetos/anexos, fora de "servidor" (que é trocado a cada atualização).
+process.env.UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "anexos");
 log(`iniciando (Node ${process.version}, pasta ${__dirname})`);
 require("./servidor/server.js");
 JS

@@ -1,23 +1,29 @@
 "use server";
 
-import { and, asc, eq, max } from "drizzle-orm";
+import { and, asc, eq, inArray, max } from "drizzle-orm";
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import * as z from "zod";
 import { db } from "@/lib/db";
 import {
   activities,
+  attachments,
   auditLog,
   clientModules,
   comments,
   moduleCatalog,
   moduleTemplateActivities,
+  projectClients,
   trainingVideos,
 } from "@/lib/db/schema";
 import { getCurrentUser } from "@/lib/auth/dal";
 import { getClientAccess } from "@/lib/data/access";
 import { logAudit } from "@/lib/audit";
-import { PRIORITIES, STATUSES } from "@/lib/labels";
+import { IMPLEMENTATION_STATUSES, PRIORITIES, STATUSES } from "@/lib/labels";
+import { moveInOrder } from "@/lib/order";
+import { copyTree } from "@/lib/tree";
+import { statusDates, todayInBrazil } from "@/lib/progress";
+import { MAX_UPLOAD_BYTES, removeUploads, saveUpload } from "@/lib/uploads";
 
 const id = z.guid();
 const optionalText = (max = 5000) =>
@@ -54,6 +60,16 @@ async function findActivity(projectClientId: string, activityId: string) {
   return row;
 }
 
+/** Registro de quando foi concluída (mantém o original se já estava concluída). */
+function completedAtFor(
+  status: string,
+  current: { status: string; completedAt: Date | null },
+  now: Date,
+) {
+  if (status !== "concluido") return null;
+  return current.status === "concluido" ? current.completedAt : now;
+}
+
 async function nextActivityPosition(clientModuleId: string) {
   const [row] = await db
     .select({ value: max(activities.position) })
@@ -67,29 +83,40 @@ export async function activateModule(formData: FormData) {
   const data = z
     .object({
       projectClientId: id,
-      moduleCatalogId: z.union([id, z.literal("")]),
+      // Vários de uma vez: cada caixa marcada manda um moduleCatalogId.
+      moduleCatalogIds: z.array(id),
       name: optionalText(200),
     })
-    .parse(Object.fromEntries(formData));
+    .parse({
+      projectClientId: formData.get("projectClientId"),
+      moduleCatalogIds: formData.getAll("moduleCatalogId").filter((v) => v !== ""),
+      name: formData.get("name") ?? "",
+    });
   const { user, access } = await requireEdit(data.projectClientId);
 
-  let name = data.name;
-  let catalogId: string | null = null;
-  if (data.moduleCatalogId) {
-    const [mod] = await db
-      .select()
-      .from(moduleCatalog)
-      .where(
-        and(
-          eq(moduleCatalog.id, data.moduleCatalogId),
-          eq(moduleCatalog.projectId, access.projectId),
-        ),
-      );
-    if (!mod) throw new Error("Módulo não encontrado neste projeto.");
-    name = mod.name;
-    catalogId = mod.id;
+  const chosen = data.moduleCatalogIds.length
+    ? await db
+        .select()
+        .from(moduleCatalog)
+        .where(
+          and(
+            inArray(moduleCatalog.id, data.moduleCatalogIds),
+            eq(moduleCatalog.projectId, access.projectId),
+          ),
+        )
+        .orderBy(asc(moduleCatalog.position), asc(moduleCatalog.name))
+    : [];
+  if (chosen.length !== new Set(data.moduleCatalogIds).size) {
+    throw new Error("Módulo não encontrado neste projeto.");
   }
-  if (!name) throw new Error("Escolha um módulo do catálogo ou informe um nome.");
+  // Na ordem do catálogo; o módulo avulso (se informado) vai por último.
+  const toActivate: { name: string; catalogId: string | null }[] = [
+    ...chosen.map((m) => ({ name: m.name, catalogId: m.id })),
+    ...(data.name ? [{ name: data.name, catalogId: null }] : []),
+  ];
+  if (toActivate.length === 0) {
+    throw new Error("Marque um módulo do catálogo ou informe um nome.");
+  }
 
   const [{ value: lastPos } = { value: null }] = await db
     .select({ value: max(clientModules.position) })
@@ -97,40 +124,48 @@ export async function activateModule(formData: FormData) {
     .where(eq(clientModules.projectClientId, data.projectClientId));
 
   await db.transaction(async (tx) => {
-    const [cm] = await tx
-      .insert(clientModules)
-      .values({
-        projectClientId: data.projectClientId,
-        moduleCatalogId: catalogId,
-        name,
-        position: (lastPos ?? -1) + 1,
-      })
-      .returning();
+    for (const [i, mod] of toActivate.entries()) {
+      const [cm] = await tx
+        .insert(clientModules)
+        .values({
+          projectClientId: data.projectClientId,
+          moduleCatalogId: mod.catalogId,
+          name: mod.name,
+          position: (lastPos ?? -1) + 1 + i,
+        })
+        .returning();
 
-    if (catalogId) {
-      const templates = await tx
-        .select()
-        .from(moduleTemplateActivities)
-        .where(eq(moduleTemplateActivities.moduleCatalogId, catalogId))
-        .orderBy(asc(moduleTemplateActivities.position));
-      if (templates.length) {
-        await tx.insert(activities).values(
-          templates.map((t, i) => ({
-            clientModuleId: cm.id,
-            name: t.name,
-            description: t.description,
-            position: i,
-          })),
-        );
+      if (mod.catalogId) {
+        const templates = await tx
+          .select()
+          .from(moduleTemplateActivities)
+          .where(eq(moduleTemplateActivities.moduleCatalogId, mod.catalogId))
+          .orderBy(asc(moduleTemplateActivities.position));
+        // Subatividades padrão viram subatividades do cliente (pais gravados antes).
+        const position = new Map(templates.map((t, j) => [t.id, j]));
+        const { parents, children } = copyTree(templates, () => crypto.randomUUID());
+        for (const group of [parents, children]) {
+          if (group.length === 0) continue;
+          await tx.insert(activities).values(
+            group.map((r) => ({
+              id: r.id,
+              clientModuleId: cm.id,
+              parentId: r.parentId,
+              name: r.item.name,
+              description: r.item.description,
+              position: position.get(r.item.id)!,
+            })),
+          );
+        }
       }
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entity: "modulo_cliente",
+        entityId: cm.id,
+        action: "criar",
+        changes: { name: mod.name },
+      });
     }
-    await tx.insert(auditLog).values({
-      userId: user.id,
-      entity: "modulo_cliente",
-      entityId: cm.id,
-      action: "criar",
-      changes: { name },
-    });
   });
   refresh();
 }
@@ -140,6 +175,17 @@ export async function removeClientModule(formData: FormData) {
     .object({ projectClientId: id, clientModuleId: id })
     .parse(Object.fromEntries(formData));
   const { user } = await requireEdit(projectClientId);
+  const files = await db
+    .select({ storagePath: attachments.storagePath })
+    .from(attachments)
+    .innerJoin(activities, eq(activities.id, attachments.activityId))
+    .innerJoin(clientModules, eq(clientModules.id, activities.clientModuleId))
+    .where(
+      and(
+        eq(clientModules.id, clientModuleId),
+        eq(clientModules.projectClientId, projectClientId),
+      ),
+    );
   await db
     .delete(clientModules)
     .where(
@@ -148,7 +194,87 @@ export async function removeClientModule(formData: FormData) {
         eq(clientModules.projectClientId, projectClientId),
       ),
     );
+  await removeUploads(files.map((f) => f.storagePath));
   await logAudit(user.id, "modulo_cliente", clientModuleId, "excluir");
+  refresh();
+}
+
+/** Muda o nome do módulo só neste cliente (atividades continuam). */
+export async function renameClientModule(formData: FormData) {
+  const { projectClientId, clientModuleId, name } = z
+    .object({
+      projectClientId: id,
+      clientModuleId: id,
+      name: z.string().trim().min(1).max(200),
+    })
+    .parse(Object.fromEntries(formData));
+  const { user } = await requireEdit(projectClientId);
+  const newName = name.replace(/\s+/g, " ");
+  await db
+    .update(clientModules)
+    .set({ name: newName })
+    .where(
+      and(
+        eq(clientModules.id, clientModuleId),
+        eq(clientModules.projectClientId, projectClientId),
+      ),
+    );
+  await logAudit(user.id, "modulo_cliente", clientModuleId, "alterar", {
+    name: newName,
+  });
+  refresh();
+}
+
+/** Sobe ou desce o módulo uma posição na tela do cliente (e no PDF). */
+export async function moveClientModule(formData: FormData) {
+  const { projectClientId, clientModuleId, direction } = z
+    .object({
+      projectClientId: id,
+      clientModuleId: id,
+      direction: z.enum(["up", "down"]),
+    })
+    .parse(Object.fromEntries(formData));
+  const { user } = await requireEdit(projectClientId);
+
+  const list = await db
+    .select({ id: clientModules.id })
+    .from(clientModules)
+    .where(eq(clientModules.projectClientId, projectClientId))
+    .orderBy(asc(clientModules.position), asc(clientModules.name));
+  const order = moveInOrder(
+    list.map((m) => m.id),
+    clientModuleId,
+    direction === "up" ? -1 : 1,
+  );
+  if (!order) return refresh();
+
+  await db.transaction(async (tx) => {
+    for (const [position, mid] of order.entries()) {
+      await tx
+        .update(clientModules)
+        .set({ position })
+        .where(eq(clientModules.id, mid));
+    }
+  });
+  await logAudit(user.id, "modulo_cliente", clientModuleId, "alterar", {
+    mover: direction,
+  });
+  refresh();
+}
+
+/** Situação da implantação deste cliente no projeto. */
+export async function updateImplementationStatus(formData: FormData) {
+  const { projectClientId, status } = z
+    .object({ projectClientId: id, status: z.enum(IMPLEMENTATION_STATUSES) })
+    .parse(Object.fromEntries(formData));
+  const { user } = await requireEdit(projectClientId);
+  await db
+    .update(projectClients)
+    .set({ status })
+    .where(eq(projectClients.id, projectClientId));
+  await logAudit(user.id, "cliente_projeto", projectClientId, "alterar", {
+    status,
+  });
   refresh();
 }
 
@@ -204,12 +330,23 @@ export async function updateStatus(formData: FormData) {
     .parse(Object.fromEntries(formData));
   const { user } = await requireEdit(data.projectClientId);
   await findActivity(data.projectClientId, data.activityId);
+  const [current] = await db
+    .select({
+      status: activities.status,
+      completedAt: activities.completedAt,
+      startDate: activities.startDate,
+      completedOn: activities.completedOn,
+    })
+    .from(activities)
+    .where(eq(activities.id, data.activityId));
 
+  const now = new Date();
   await db
     .update(activities)
     .set({
       status: data.status,
-      completedAt: data.status === "concluido" ? new Date() : null,
+      ...statusDates(data.status, current, todayInBrazil(now)),
+      completedAt: completedAtFor(data.status, current, now),
     })
     .where(eq(activities.id, data.activityId));
   await logAudit(user.id, "atividade", data.activityId, "alterar", {
@@ -231,6 +368,7 @@ export async function updateActivity(formData: FormData) {
       clientContact: optionalText(200),
       startDate: optionalDate,
       dueDate: optionalDate,
+      completedOn: optionalDate,
     })
     .parse(Object.fromEntries(formData));
   const { user } = await requireEdit(data.projectClientId);
@@ -242,17 +380,14 @@ export async function updateActivity(formData: FormData) {
     .from(activities)
     .where(eq(activities.id, activityId));
 
+  const now = new Date();
   await db
     .update(activities)
     .set({
       ...values,
-      // Data de conclusão automática ao marcar Concluído (mantém a original se já estava).
-      completedAt:
-        values.status === "concluido"
-          ? current.status === "concluido"
-            ? current.completedAt
-            : new Date()
-          : null,
+      // Início e Conclusão vazios são preenchidos com hoje conforme o status.
+      ...statusDates(values.status, values, todayInBrazil(now)),
+      completedAt: completedAtFor(values.status, current, now),
     })
     .where(eq(activities.id, activityId));
   await logAudit(user.id, "atividade", activityId, "alterar", values);
@@ -266,7 +401,17 @@ export async function deleteActivity(formData: FormData) {
     .parse(Object.fromEntries(formData));
   const { user } = await requireEdit(projectClientId);
   await findActivity(projectClientId, activityId);
+  // Anexos da atividade e das subatividades.
+  const subs = await db
+    .select({ id: activities.id })
+    .from(activities)
+    .where(eq(activities.parentId, activityId));
+  const files = await db
+    .select({ storagePath: attachments.storagePath })
+    .from(attachments)
+    .where(inArray(attachments.activityId, [activityId, ...subs.map((a) => a.id)]));
   await db.delete(activities).where(eq(activities.id, activityId));
+  await removeUploads(files.map((f) => f.storagePath));
   await logAudit(user.id, "atividade", activityId, "excluir");
   redirect(`/c/${projectClientId}`);
 }
@@ -342,5 +487,64 @@ export async function deleteTrainingVideo(formData: FormData) {
       ),
     );
   await logAudit(user.id, "treinamento", videoId, "excluir");
+  refresh();
+}
+
+export async function uploadAttachment(formData: FormData) {
+  const data = z
+    .object({
+      projectClientId: id,
+      activityId: id,
+      visibility: z.enum(["interno", "cliente"]),
+    })
+    .parse(Object.fromEntries(formData));
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("Escolha um arquivo.");
+  }
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error("Arquivo maior que 20 MB.");
+  }
+  const { user } = await requireEdit(data.projectClientId);
+  await findActivity(data.projectClientId, data.activityId);
+
+  const fileName = file.name.trim().slice(0, 255) || "arquivo";
+  const storagePath = await saveUpload(file);
+  const [row] = await db
+    .insert(attachments)
+    .values({
+      activityId: data.activityId,
+      uploadedBy: user.id,
+      fileName,
+      storagePath,
+      visibility: data.visibility,
+      mimeType: file.type || null,
+      sizeBytes: file.size,
+    })
+    .returning({ id: attachments.id });
+  await logAudit(user.id, "anexo", row.id, "criar", {
+    fileName,
+    visibility: data.visibility,
+  });
+  refresh();
+}
+
+export async function deleteAttachment(formData: FormData) {
+  const { projectClientId, activityId, attachmentId } = z
+    .object({ projectClientId: id, activityId: id, attachmentId: id })
+    .parse(Object.fromEntries(formData));
+  const { user } = await requireEdit(projectClientId);
+  await findActivity(projectClientId, activityId);
+  const [row] = await db
+    .delete(attachments)
+    .where(
+      and(
+        eq(attachments.id, attachmentId),
+        eq(attachments.activityId, activityId),
+      ),
+    )
+    .returning({ storagePath: attachments.storagePath });
+  if (row) await removeUploads([row.storagePath]);
+  await logAudit(user.id, "anexo", attachmentId, "excluir");
   refresh();
 }
