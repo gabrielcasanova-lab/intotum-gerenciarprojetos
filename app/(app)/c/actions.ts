@@ -83,29 +83,40 @@ export async function activateModule(formData: FormData) {
   const data = z
     .object({
       projectClientId: id,
-      moduleCatalogId: z.union([id, z.literal("")]),
+      // Vários de uma vez: cada caixa marcada manda um moduleCatalogId.
+      moduleCatalogIds: z.array(id),
       name: optionalText(200),
     })
-    .parse(Object.fromEntries(formData));
+    .parse({
+      projectClientId: formData.get("projectClientId"),
+      moduleCatalogIds: formData.getAll("moduleCatalogId").filter((v) => v !== ""),
+      name: formData.get("name") ?? "",
+    });
   const { user, access } = await requireEdit(data.projectClientId);
 
-  let name = data.name;
-  let catalogId: string | null = null;
-  if (data.moduleCatalogId) {
-    const [mod] = await db
-      .select()
-      .from(moduleCatalog)
-      .where(
-        and(
-          eq(moduleCatalog.id, data.moduleCatalogId),
-          eq(moduleCatalog.projectId, access.projectId),
-        ),
-      );
-    if (!mod) throw new Error("Módulo não encontrado neste projeto.");
-    name = mod.name;
-    catalogId = mod.id;
+  const chosen = data.moduleCatalogIds.length
+    ? await db
+        .select()
+        .from(moduleCatalog)
+        .where(
+          and(
+            inArray(moduleCatalog.id, data.moduleCatalogIds),
+            eq(moduleCatalog.projectId, access.projectId),
+          ),
+        )
+        .orderBy(asc(moduleCatalog.position), asc(moduleCatalog.name))
+    : [];
+  if (chosen.length !== new Set(data.moduleCatalogIds).size) {
+    throw new Error("Módulo não encontrado neste projeto.");
   }
-  if (!name) throw new Error("Escolha um módulo do catálogo ou informe um nome.");
+  // Na ordem do catálogo; o módulo avulso (se informado) vai por último.
+  const toActivate: { name: string; catalogId: string | null }[] = [
+    ...chosen.map((m) => ({ name: m.name, catalogId: m.id })),
+    ...(data.name ? [{ name: data.name, catalogId: null }] : []),
+  ];
+  if (toActivate.length === 0) {
+    throw new Error("Marque um módulo do catálogo ou informe um nome.");
+  }
 
   const [{ value: lastPos } = { value: null }] = await db
     .select({ value: max(clientModules.position) })
@@ -113,46 +124,48 @@ export async function activateModule(formData: FormData) {
     .where(eq(clientModules.projectClientId, data.projectClientId));
 
   await db.transaction(async (tx) => {
-    const [cm] = await tx
-      .insert(clientModules)
-      .values({
-        projectClientId: data.projectClientId,
-        moduleCatalogId: catalogId,
-        name,
-        position: (lastPos ?? -1) + 1,
-      })
-      .returning();
+    for (const [i, mod] of toActivate.entries()) {
+      const [cm] = await tx
+        .insert(clientModules)
+        .values({
+          projectClientId: data.projectClientId,
+          moduleCatalogId: mod.catalogId,
+          name: mod.name,
+          position: (lastPos ?? -1) + 1 + i,
+        })
+        .returning();
 
-    if (catalogId) {
-      const templates = await tx
-        .select()
-        .from(moduleTemplateActivities)
-        .where(eq(moduleTemplateActivities.moduleCatalogId, catalogId))
-        .orderBy(asc(moduleTemplateActivities.position));
-      // Subatividades padrão viram subatividades do cliente (pais gravados antes).
-      const position = new Map(templates.map((t, i) => [t.id, i]));
-      const { parents, children } = copyTree(templates, () => crypto.randomUUID());
-      for (const group of [parents, children]) {
-        if (group.length === 0) continue;
-        await tx.insert(activities).values(
-          group.map((r) => ({
-            id: r.id,
-            clientModuleId: cm.id,
-            parentId: r.parentId,
-            name: r.item.name,
-            description: r.item.description,
-            position: position.get(r.item.id)!,
-          })),
-        );
+      if (mod.catalogId) {
+        const templates = await tx
+          .select()
+          .from(moduleTemplateActivities)
+          .where(eq(moduleTemplateActivities.moduleCatalogId, mod.catalogId))
+          .orderBy(asc(moduleTemplateActivities.position));
+        // Subatividades padrão viram subatividades do cliente (pais gravados antes).
+        const position = new Map(templates.map((t, j) => [t.id, j]));
+        const { parents, children } = copyTree(templates, () => crypto.randomUUID());
+        for (const group of [parents, children]) {
+          if (group.length === 0) continue;
+          await tx.insert(activities).values(
+            group.map((r) => ({
+              id: r.id,
+              clientModuleId: cm.id,
+              parentId: r.parentId,
+              name: r.item.name,
+              description: r.item.description,
+              position: position.get(r.item.id)!,
+            })),
+          );
+        }
       }
+      await tx.insert(auditLog).values({
+        userId: user.id,
+        entity: "modulo_cliente",
+        entityId: cm.id,
+        action: "criar",
+        changes: { name: mod.name },
+      });
     }
-    await tx.insert(auditLog).values({
-      userId: user.id,
-      entity: "modulo_cliente",
-      entityId: cm.id,
-      action: "criar",
-      changes: { name },
-    });
   });
   refresh();
 }

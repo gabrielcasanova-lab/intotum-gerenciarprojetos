@@ -431,26 +431,45 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
       {editable && (
         <form
           action={activateModule}
-          className={`${ui.card} flex flex-wrap items-end gap-3 p-4`}
+          className={`${ui.card} flex flex-col gap-3 p-4`}
         >
           <input type="hidden" name="projectClientId" value={pc} />
-          <label className={`${ui.label} min-w-48 flex-1`}>
-            Ativar módulo do catálogo
-            <select name="moduleCatalogId" defaultValue="" className={ui.input}>
-              <option value="">— módulo avulso (use o nome ao lado) —</option>
-              {catalog.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {usedCatalog.has(c.id) ? " (já ativado)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={`${ui.label} min-w-48 flex-1`}>
-            Nome do módulo avulso
-            <input name="name" maxLength={200} className={ui.input} />
-          </label>
-          <button className={ui.button}>Ativar módulo</button>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-2 text-sm font-medium">
+              Ativar módulos do catálogo (marque um ou vários)
+            </legend>
+            {catalog.length > 0 ? (
+              <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+                {catalog.map((c) => {
+                  const used = usedCatalog.has(c.id);
+                  return (
+                    <label
+                      key={c.id}
+                      className={`flex items-center gap-2 text-sm ${used ? "text-slate-400" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        name="moduleCatalogId"
+                        value={c.id}
+                        disabled={used}
+                      />
+                      {c.name}
+                      {used && <span className="text-xs">(já ativado)</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">O catálogo deste projeto está vazio.</p>
+            )}
+          </fieldset>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className={`${ui.label} min-w-48 flex-1`}>
+              Módulo avulso (opcional, fora do catálogo)
+              <input name="name" maxLength={200} className={ui.input} />
+            </label>
+            <button className={ui.button}>Ativar módulos</button>
+          </div>
         </form>
       )}
     </div>
