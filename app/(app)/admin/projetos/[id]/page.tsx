@@ -108,9 +108,16 @@ function TemplateItem({ t }: { t: { id: string; name: string; nameEs: string | n
   );
 }
 
-async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
+async function ProjectDetail({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ excluir?: string }>;
+}) {
   await requireAdmin();
   const { id } = await params;
+  const wrongName = (await searchParams).excluir === "nome-errado";
   if (!isUuid(id)) notFound();
 
   const [project] = await db.select().from(projects).where(eq(projects.id, id));
@@ -507,35 +514,52 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
           </form>
         )}
       </section>
-      {/* Excluir projeto: só sem clientes, para não apagar histórico por engano. */}
-      <section className={`${ui.card} flex flex-col gap-2 border-red-200 p-4`}>
+      {/* Excluir projeto com tudo; confirma digitando o nome. */}
+      <section
+        id="excluir"
+        className={`${ui.card} flex flex-col gap-2 border-red-200 p-4`}
+      >
         <h2 className="font-semibold text-red-800">Excluir projeto</h2>
-        {linked.length > 0 ? (
-          <p className="text-sm text-slate-600">
-            Este projeto tem {linked.length === 1 ? "1 cliente" : `${linked.length} clientes`}.
-            Para excluir, remova antes os clientes dele (botão &quot;Remover&quot; em
-            Clientes). Para só esconder, desmarque &quot;Projeto ativo&quot; acima.
+        <p className="text-sm text-slate-600">
+          Apaga o projeto e tudo dentro dele
+          {linked.length > 0 &&
+            ` (${linked.length === 1 ? "1 cliente" : `${linked.length} clientes`} com módulos, atividades, comentários, anexos e vídeos)`}
+          , além do catálogo de módulos. O cadastro dos clientes continua existindo.
+          Não tem volta. Para só esconder, desmarque &quot;Projeto ativo&quot; acima.
+        </p>
+        <form action={deleteProject} className="flex flex-wrap items-end gap-2">
+          <input type="hidden" name="projectId" value={project.id} />
+          <label className={`${ui.label} min-w-60 flex-1`}>
+            Digite o nome do projeto para confirmar: {project.name}
+            <input name="confirmName" required autoComplete="off" className={ui.input} />
+          </label>
+          <ConfirmButton
+            className={ui.buttonDanger}
+            message={`Excluir o projeto ${project.name} e tudo dentro dele? Não tem volta.`}
+          >
+            Excluir projeto
+          </ConfirmButton>
+        </form>
+        {wrongName && (
+          <p role="alert" className="text-sm text-red-700">
+            O nome digitado não confere. Nada foi excluído.
           </p>
-        ) : (
-          <form action={deleteProject}>
-            <input type="hidden" name="projectId" value={project.id} />
-            <ConfirmButton
-              className={ui.buttonDanger}
-              message={`Excluir o projeto ${project.name}? O catálogo de módulos e os acessos dados ao projeto também serão apagados. Não tem volta.`}
-            >
-              Excluir projeto
-            </ConfirmButton>
-          </form>
         )}
       </section>
     </div>
   );
 }
 
-export default function ProjectPage({ params }: PageProps<"/admin/projetos/[id]">) {
+export default function ProjectPage({
+  params,
+  searchParams,
+}: PageProps<"/admin/projetos/[id]">) {
   return (
     <Suspense fallback={<p className="text-slate-500">Carregando…</p>}>
-      <ProjectDetail params={params} />
+      <ProjectDetail
+        params={params}
+        searchParams={searchParams as Promise<{ excluir?: string }>}
+      />
     </Suspense>
   );
 }

@@ -49,25 +49,41 @@ export async function createProject(formData: FormData) {
   redirect(`/admin/projetos/${project.id}`);
 }
 
-/** Exclui um projeto sem clientes (catálogo e acessos ao projeto vão junto). */
+/**
+ * Exclui o projeto com tudo: clientes vinculados a ele (módulos, atividades,
+ * comentários, anexos e vídeos), catálogo e acessos. O cadastro do cliente
+ * continua existindo (pode estar em outro projeto). Pede o nome do projeto
+ * digitado para confirmar.
+ */
 export async function deleteProject(formData: FormData) {
   const admin = await requireAdmin();
-  const projectId = id.parse(formData.get("projectId"));
+  const { projectId, confirmName } = z
+    .object({ projectId: id, confirmName: z.string() })
+    .parse(Object.fromEntries(formData));
   const [project] = await db
     .select({ name: projects.name })
     .from(projects)
     .where(eq(projects.id, projectId));
   if (!project) redirect("/admin/projetos");
-  const [hasClient] = await db
-    .select({ id: projectClients.id })
-    .from(projectClients)
-    .where(eq(projectClients.projectId, projectId))
-    .limit(1);
-  if (hasClient) {
-    throw new Error("Remova os clientes do projeto antes de excluí-lo.");
+  const normalize = (v: string) => v.trim().replace(/\s+/g, " ").toLowerCase();
+  if (normalize(confirmName) !== normalize(project.name)) {
+    redirect(`/admin/projetos/${projectId}?excluir=nome-errado#excluir`);
   }
+
+  const files = await db
+    .select({ storagePath: attachments.storagePath })
+    .from(attachments)
+    .innerJoin(activities, eq(activities.id, attachments.activityId))
+    .innerJoin(clientModules, eq(clientModules.id, activities.clientModuleId))
+    .innerJoin(projectClients, eq(projectClients.id, clientModules.projectClientId))
+    .where(eq(projectClients.projectId, projectId));
+  // Cascata no banco: clientes do projeto, módulos, atividades, comentários etc.
   await db.delete(projects).where(eq(projects.id, projectId));
-  await logAudit(admin.id, "projeto", projectId, "excluir", { name: project.name });
+  await removeUploads(files.map((f) => f.storagePath));
+  await logAudit(admin.id, "projeto", projectId, "excluir", {
+    name: project.name,
+    anexosApagados: files.length,
+  });
   redirect("/admin/projetos");
 }
 
