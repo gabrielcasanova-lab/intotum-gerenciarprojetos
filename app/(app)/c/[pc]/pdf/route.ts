@@ -4,6 +4,7 @@ import { getClientAccess } from "@/lib/data/access";
 import { loadClientReport } from "@/lib/data/report";
 import { renderClientReport } from "@/lib/pdf/client-report";
 import { todayInBrazil } from "@/lib/progress";
+import { dictionary } from "@/lib/i18n";
 
 /** PDF do andamento do cliente, para enviar a ele (sem comentários internos). */
 export async function GET(
@@ -21,7 +22,10 @@ export async function GET(
   const now = new Date();
   const pdf = await renderClientReport(report, todayInBrazil(now), now);
 
-  const fileName = `Andamento - ${access.clientName} - ${todayInBrazil(now)}.pdf`;
+  const fileName = dictionary(report.language).pdf.fileName(
+    access.clientName,
+    todayInBrazil(now),
+  );
   return new Response(new Uint8Array(pdf), {
     headers: {
       "Content-Type": "application/pdf",

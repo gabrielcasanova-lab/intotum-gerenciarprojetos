@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import * as z from "zod";
 import { db } from "@/lib/db";
 import {
+  accessGrants,
   activities,
   attachments,
   clientModules,
@@ -14,6 +15,7 @@ import {
   moduleTemplateActivities,
   projectClients,
   projects,
+  users,
 } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth/dal";
 import { logAudit } from "@/lib/audit";
@@ -21,6 +23,8 @@ import { splitNames } from "@/lib/names";
 import { moveInOrder } from "@/lib/order";
 import { copyTree } from "@/lib/tree";
 import { removeUploads } from "@/lib/uploads";
+import { syncCatalogNames } from "@/lib/data/catalog-names";
+import { findSpanishName, parseNameList } from "@/lib/catalog-names";
 
 const text = (max = 200) => z.string().trim().min(1).max(max);
 const optionalText = (max = 2000) =>
@@ -44,6 +48,44 @@ export async function createProject(formData: FormData) {
   const [project] = await db.insert(projects).values(data).returning();
   await logAudit(admin.id, "projeto", project.id, "criar", data);
   redirect(`/admin/projetos/${project.id}`);
+}
+
+/**
+ * Exclui o projeto com tudo: clientes vinculados a ele (módulos, atividades,
+ * comentários, anexos e vídeos), catálogo e acessos. O cadastro do cliente
+ * continua existindo (pode estar em outro projeto). Pede o nome do projeto
+ * digitado para confirmar.
+ */
+export async function deleteProject(formData: FormData) {
+  const admin = await requireAdmin();
+  const { projectId, confirmName } = z
+    .object({ projectId: id, confirmName: z.string() })
+    .parse(Object.fromEntries(formData));
+  const [project] = await db
+    .select({ name: projects.name })
+    .from(projects)
+    .where(eq(projects.id, projectId));
+  if (!project) redirect("/admin/projetos");
+  const normalize = (v: string) => v.trim().replace(/\s+/g, " ").toLowerCase();
+  if (normalize(confirmName) !== normalize(project.name)) {
+    redirect(`/admin/projetos/${projectId}?excluir=nome-errado#excluir`);
+  }
+
+  const files = await db
+    .select({ storagePath: attachments.storagePath })
+    .from(attachments)
+    .innerJoin(activities, eq(activities.id, attachments.activityId))
+    .innerJoin(clientModules, eq(clientModules.id, activities.clientModuleId))
+    .innerJoin(projectClients, eq(projectClients.id, clientModules.projectClientId))
+    .where(eq(projectClients.projectId, projectId));
+  // Cascata no banco: clientes do projeto, módulos, atividades, comentários etc.
+  await db.delete(projects).where(eq(projects.id, projectId));
+  await removeUploads(files.map((f) => f.storagePath));
+  await logAudit(admin.id, "projeto", projectId, "excluir", {
+    name: project.name,
+    anexosApagados: files.length,
+  });
+  redirect("/admin/projetos");
 }
 
 export async function updateProject(formData: FormData) {
@@ -169,7 +211,7 @@ export async function copyModulesFrom(formData: FormData) {
     for (const [i, m] of toCopy.entries()) {
       const [mod] = await tx
         .insert(moduleCatalog)
-        .values({ projectId, name: m.name, position: first + i })
+        .values({ projectId, name: m.name, nameEs: m.nameEs, position: first + i })
         .returning({ id: moduleCatalog.id });
       const list = templates.filter((t) => t.moduleCatalogId === m.id);
       const { parents, children } = copyTree(list, () => crypto.randomUUID());
@@ -181,6 +223,7 @@ export async function copyModulesFrom(formData: FormData) {
             moduleCatalogId: mod.id,
             parentId: r.parentId,
             name: r.item.name,
+            nameEs: r.item.nameEs,
             description: r.item.description,
             position: r.item.position,
           })),
@@ -201,41 +244,105 @@ export async function copyModulesFrom(formData: FormData) {
  */
 export async function renameModule(formData: FormData) {
   const admin = await requireAdmin();
-  const { moduleId, name } = z
-    .object({ moduleId: id, name: text() })
+  const { moduleId, name, nameEs } = z
+    .object({ moduleId: id, name: text(), nameEs: optionalText(200) })
     .parse(Object.fromEntries(formData));
   const newName = name.replace(/\s+/g, " ");
+  const newNameEs = nameEs?.replace(/\s+/g, " ") || null;
 
   const [mod] = await db
     .select()
     .from(moduleCatalog)
     .where(eq(moduleCatalog.id, moduleId));
   if (!mod) throw new Error("Módulo não encontrado.");
-  if (mod.name === newName) return refresh();
+  if (mod.name === newName && mod.nameEs === newNameEs) return refresh();
 
+  // Clientes que ainda usam o nome do catálogo passam a ver o nome novo
+  // (os em espanhol, o nome em espanhol).
   await db.transaction(async (tx) => {
     await tx
       .update(moduleCatalog)
-      .set({ name: newName })
+      .set({ name: newName, nameEs: newNameEs })
       .where(eq(moduleCatalog.id, moduleId));
-    await tx
-      .update(clientModules)
-      .set({ name: newName })
-      .where(
-        and(
-          eq(clientModules.moduleCatalogId, moduleId),
-          eq(clientModules.name, mod.name),
-        ),
-      );
+    await syncCatalogNames(tx, { moduleCatalogIds: [moduleId] }, new Map([[mod.id, mod]]));
   });
   await logAudit(admin.id, "modulo_catalogo", moduleId, "alterar", {
-    de: mod.name,
-    para: newName,
+    de: [mod.name, mod.nameEs],
+    para: [newName, newNameEs],
   });
   refresh();
 }
 
 /** Sobe ou desce um módulo uma posição no catálogo. */
+/**
+ * Preenche de uma vez os nomes em espanhol do catálogo do projeto a partir de
+ * uma lista "Português = Español". Itens que não estão na lista ficam como estão.
+ */
+export async function importSpanishNames(formData: FormData) {
+  const admin = await requireAdmin();
+  const { projectId, list } = z
+    .object({ projectId: id, list: z.string().max(200_000) })
+    .parse(Object.fromEntries(formData));
+  const lines = parseNameList(list);
+
+  const modules = await db
+    .select()
+    .from(moduleCatalog)
+    .where(eq(moduleCatalog.projectId, projectId));
+  const templates = modules.length
+    ? await db
+        .select()
+        .from(moduleTemplateActivities)
+        .where(
+          inArray(
+            moduleTemplateActivities.moduleCatalogId,
+            modules.map((m) => m.id),
+          ),
+        )
+    : [];
+
+  let updated = 0;
+  const used = new Set<string>();
+  await db.transaction(async (tx) => {
+    const previous = new Map<string, { id: string; name: string; nameEs: string | null }>();
+    for (const m of modules) {
+      const es = findSpanishName(m.name, lines);
+      if (!es) continue;
+      used.add(m.name);
+      if (es === m.nameEs) continue;
+      previous.set(m.id, m);
+      await tx.update(moduleCatalog).set({ nameEs: es }).where(eq(moduleCatalog.id, m.id));
+      updated++;
+    }
+    for (const t of templates) {
+      const es = findSpanishName(t.name, lines);
+      if (!es) continue;
+      used.add(t.name);
+      if (es === t.nameEs) continue;
+      previous.set(t.id, t);
+      await tx
+        .update(moduleTemplateActivities)
+        .set({ nameEs: es })
+        .where(eq(moduleTemplateActivities.id, t.id));
+      updated++;
+    }
+    // Clientes em espanhol que já usam o catálogo passam aos nomes novos.
+    await syncCatalogNames(tx, { moduleCatalogIds: modules.map((m) => m.id) }, previous);
+  });
+
+  const missing = [...modules.map((m) => m.name), ...templates.map((t) => t.name)].filter(
+    (n) => !used.has(n),
+  );
+  await logAudit(admin.id, "projeto", projectId, "alterar", {
+    nomesEmEspanhol: updated,
+  });
+  const query = new URLSearchParams({
+    importados: String(updated),
+    semTraducao: [...new Set(missing)].join("|").slice(0, 1500),
+  });
+  redirect(`/admin/projetos/${projectId}?${query}#importar-espanhol`);
+}
+
 export async function moveModule(formData: FormData) {
   const admin = await requireAdmin();
   const { moduleId, direction } = z
@@ -337,40 +444,33 @@ export async function addTemplateActivity(formData: FormData) {
  */
 export async function renameTemplateActivity(formData: FormData) {
   const admin = await requireAdmin();
-  const { templateId, name } = z
-    .object({ templateId: id, name: text() })
+  const { templateId, name, nameEs } = z
+    .object({ templateId: id, name: text(), nameEs: optionalText(200) })
     .parse(Object.fromEntries(formData));
   const newName = name.replace(/\s+/g, " ");
+  const newNameEs = nameEs?.replace(/\s+/g, " ") || null;
 
   const [tpl] = await db
     .select()
     .from(moduleTemplateActivities)
     .where(eq(moduleTemplateActivities.id, templateId));
   if (!tpl) throw new Error("Atividade padrão não encontrada.");
-  if (tpl.name === newName) return refresh();
+  if (tpl.name === newName && tpl.nameEs === newNameEs) return refresh();
 
   await db.transaction(async (tx) => {
     await tx
       .update(moduleTemplateActivities)
-      .set({ name: newName })
+      .set({ name: newName, nameEs: newNameEs })
       .where(eq(moduleTemplateActivities.id, templateId));
-    const linked = tx
-      .select({ id: clientModules.id })
-      .from(clientModules)
-      .where(eq(clientModules.moduleCatalogId, tpl.moduleCatalogId));
-    await tx
-      .update(activities)
-      .set({ name: newName })
-      .where(
-        and(
-          inArray(activities.clientModuleId, linked),
-          eq(activities.name, tpl.name),
-        ),
-      );
+    await syncCatalogNames(
+      tx,
+      { moduleCatalogIds: [tpl.moduleCatalogId] },
+      new Map([[tpl.id, tpl]]),
+    );
   });
   await logAudit(admin.id, "atividade_modelo", templateId, "alterar", {
-    de: tpl.name,
-    para: newName,
+    de: [tpl.name, tpl.nameEs],
+    para: [newName, newNameEs],
   });
   refresh();
 }
@@ -397,6 +497,7 @@ export async function addClientToProject(formData: FormData) {
       contactName: optionalText(200),
       email: optionalText(200),
       phone: optionalText(50),
+      language: z.enum(["pt", "es"]).default("pt"),
     })
     .parse(Object.fromEntries(formData));
 
@@ -411,6 +512,7 @@ export async function addClientToProject(formData: FormData) {
         contactName: data.contactName,
         email: data.email,
         phone: data.phone,
+        language: data.language,
       })
       .returning();
     clientId = client.id;
@@ -441,12 +543,108 @@ export async function updateClient(formData: FormData) {
       contactName: optionalText(200),
       email: optionalText(200),
       phone: optionalText(50),
+      language: z.enum(["pt", "es"]),
     })
     .parse(Object.fromEntries(formData));
 
+  const [before] = await db
+    .select({ language: clients.language })
+    .from(clients)
+    .where(eq(clients.id, clientId));
   await db.update(clients).set(values).where(eq(clients.id, clientId));
+  // Trocou o idioma: módulos e atividades do catálogo passam para o idioma novo.
+  if (before && before.language !== values.language) {
+    const links = await db
+      .select({ id: projectClients.id })
+      .from(projectClients)
+      .where(eq(projectClients.clientId, clientId));
+    await db.transaction((tx) =>
+      syncCatalogNames(tx, { projectClientIds: links.map((l) => l.id) }),
+    );
+  }
+  // Os usuários deste cliente acompanham o idioma do cadastro.
+  const clientUsers = db
+    .select({ userId: accessGrants.userId })
+    .from(accessGrants)
+    .innerJoin(projectClients, eq(projectClients.id, accessGrants.projectClientId))
+    .where(eq(projectClients.clientId, clientId));
+  await db
+    .update(users)
+    .set({ language: values.language })
+    .where(and(eq(users.role, "cliente"), inArray(users.id, clientUsers)));
   await logAudit(admin.id, "cliente", clientId, "alterar", values);
   refresh();
+}
+
+/**
+ * Move um cliente (com módulos, atividades, comentários, anexos, vídeos e
+ * acessos) para outro projeto. Basta trocar o projeto do vínculo; os módulos
+ * são religados ao catálogo do destino pelo nome (senão ficam avulsos).
+ */
+export async function moveClient(formData: FormData) {
+  const admin = await requireAdmin();
+  const { projectClientId, targetProjectId } = z
+    .object({ projectClientId: id, targetProjectId: id })
+    .parse(Object.fromEntries(formData));
+  const [link] = await db
+    .select()
+    .from(projectClients)
+    .where(eq(projectClients.id, projectClientId));
+  if (!link) throw new Error("Cliente não encontrado neste projeto.");
+  if (link.projectId === targetProjectId) return refresh();
+  const [target] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, targetProjectId));
+  if (!target) throw new Error("Projeto de destino não encontrado.");
+  const [already] = await db
+    .select({ id: projectClients.id })
+    .from(projectClients)
+    .where(
+      and(
+        eq(projectClients.projectId, targetProjectId),
+        eq(projectClients.clientId, link.clientId),
+      ),
+    );
+  if (already) throw new Error("O cliente já está no projeto de destino.");
+
+  const [mods, targetCatalog] = await Promise.all([
+    db
+      .select({ id: clientModules.id, catalogId: clientModules.moduleCatalogId })
+      .from(clientModules)
+      .where(eq(clientModules.projectClientId, projectClientId)),
+    db
+      .select()
+      .from(moduleCatalog)
+      .where(eq(moduleCatalog.projectId, targetProjectId)),
+  ]);
+  const sourceCatalog = mods.some((m) => m.catalogId)
+    ? await db
+        .select()
+        .from(moduleCatalog)
+        .where(eq(moduleCatalog.projectId, link.projectId))
+    : [];
+  const norm = (v: string) => v.trim().replace(/\s+/g, " ").toLowerCase();
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(projectClients)
+      .set({ projectId: targetProjectId })
+      .where(eq(projectClients.id, projectClientId));
+    for (const m of mods) {
+      const from = sourceCatalog.find((c) => c.id === m.catalogId);
+      const to = from && targetCatalog.find((c) => norm(c.name) === norm(from.name));
+      await tx
+        .update(clientModules)
+        .set({ moduleCatalogId: to?.id ?? null })
+        .where(eq(clientModules.id, m.id));
+    }
+  });
+  await logAudit(admin.id, "cliente_projeto", projectClientId, "alterar", {
+    moveuDe: link.projectId,
+    para: targetProjectId,
+  });
+  redirect(`/admin/projetos/${targetProjectId}`);
 }
 
 export async function unlinkClient(formData: FormData) {

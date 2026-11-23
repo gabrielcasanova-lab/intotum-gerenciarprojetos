@@ -60,6 +60,9 @@ export const implementationStatus = pgEnum("implementation_status", [
   "cancelado",
 ]);
 
+/** Idioma das telas, e-mails e PDF (pt = português, es = espanhol). */
+export const language = pgEnum("language", ["pt", "es"]);
+
 export const customFieldType = pgEnum("custom_field_type", [
   "texto",
   "texto_longo",
@@ -88,6 +91,7 @@ export const users = pgTable("users", {
   // Nulo enquanto o convite não foi aceito.
   passwordHash: text("password_hash"),
   role: userRole("role").notNull(),
+  language: language("language").notNull().default("pt"),
   active: boolean("active").notNull().default(true),
   failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
@@ -152,6 +156,8 @@ export const clients = pgTable("clients", {
   contactName: text("contact_name"),
   email: text("email"),
   phone: text("phone"),
+  // Idioma do relatório em PDF deste cliente.
+  language: language("language").notNull().default("pt"),
   createdAt: createdAt(),
 });
 
@@ -208,6 +214,8 @@ export const moduleCatalog = pgTable("module_catalog", {
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  // Nome usado nos clientes em espanhol (opcional; vazio = mesmo nome).
+  nameEs: text("name_es"),
   position: integer("position").notNull().default(0),
 });
 
@@ -223,6 +231,8 @@ export const moduleTemplateActivities = pgTable("module_template_activities", {
     { onDelete: "cascade" },
   ),
   name: text("name").notNull(),
+  // Nome usado nos clientes em espanhol (opcional; vazio = mesmo nome).
+  nameEs: text("name_es"),
   description: text("description"),
   position: integer("position").notNull().default(0),
 });

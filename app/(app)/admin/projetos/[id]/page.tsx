@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { asc, eq, ne, notInArray } from "drizzle-orm";
+import { asc, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   clients,
@@ -16,13 +16,17 @@ import * as ui from "@/lib/ui/styles";
 import { ConfirmButton } from "@/components/confirm-button";
 import { StickySelect } from "@/components/sticky-select";
 import { MoveButtons } from "@/components/move-buttons";
+import { LANGUAGES, languageName, type Language } from "@/lib/i18n";
 import {
   addClientToProject,
   addModule,
   addTemplateActivity,
   copyModulesFrom,
   deleteModule,
+  deleteProject,
   deleteTemplateActivity,
+  importSpanishNames,
+  moveClient,
   moveModule,
   renameModule,
   renameTemplateActivity,
@@ -31,8 +35,38 @@ import {
   updateProject,
 } from "../actions";
 
+/** Idioma do cliente: o do PDF e o dos usuários desse cliente. */
+function LanguageField({ defaultValue }: { defaultValue: Language }) {
+  return (
+    <label className={ui.label}>
+      Idioma (PDF e usuários do cliente)
+      <select name="language" defaultValue={defaultValue} className={ui.input}>
+        {LANGUAGES.map((l) => (
+          <option key={l} value={l}>
+            {languageName[l]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** Campo opcional com o nome usado nos clientes em espanhol. */
+function SpanishNameInput({ value, of }: { value: string | null; of: string }) {
+  return (
+    <input
+      name="nameEs"
+      maxLength={200}
+      defaultValue={value ?? ""}
+      placeholder="Nome em espanhol (opcional)"
+      aria-label={`Nome em espanhol de ${of}`}
+      className={`${ui.input} flex-1`}
+    />
+  );
+}
+
 /** Uma atividade padrão do catálogo: nome, renomear e excluir. */
-function TemplateItem({ t }: { t: { id: string; name: string } }) {
+function TemplateItem({ t }: { t: { id: string; name: string; nameEs: string | null } }) {
   return (
     <div>
       {/* O botão "excluir" fica na linha do nome e envia este formulário (atributo form). */}
@@ -42,6 +76,7 @@ function TemplateItem({ t }: { t: { id: string; name: string } }) {
       <details>
         <summary className="inline-flex cursor-pointer list-none items-center gap-2">
           {t.name}
+          {t.nameEs && <span className="text-xs text-slate-500">ES: {t.nameEs}</span>}
           <span className="text-xs text-blue-700 hover:underline">
             renomear
           </span>
@@ -54,9 +89,9 @@ function TemplateItem({ t }: { t: { id: string; name: string } }) {
           </button>
         </summary>
         <form
-          key={t.name}
+          key={`${t.name}|${t.nameEs}`}
           action={renameTemplateActivity}
-          className="my-1 flex gap-2"
+          className="my-1 flex flex-wrap gap-2"
         >
           <input type="hidden" name="templateId" value={t.id} />
           <input
@@ -67,6 +102,7 @@ function TemplateItem({ t }: { t: { id: string; name: string } }) {
             aria-label={`Novo nome de ${t.name}`}
             className={`${ui.input} flex-1`}
           />
+          <SpanishNameInput value={t.nameEs} of={t.name} />
           <button className={ui.buttonSecondary}>Salvar</button>
         </form>
       </details>
@@ -74,9 +110,17 @@ function TemplateItem({ t }: { t: { id: string; name: string } }) {
   );
 }
 
-async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
+async function ProjectDetail({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ excluir?: string; importados?: string; semTraducao?: string }>;
+}) {
   await requireAdmin();
   const { id } = await params;
+  const query = await searchParams;
+  const wrongName = query.excluir === "nome-errado";
   if (!isUuid(id)) notFound();
 
   const [project] = await db.select().from(projects).where(eq(projects.id, id));
@@ -94,6 +138,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
         moduleCatalogId: moduleTemplateActivities.moduleCatalogId,
         parentId: moduleTemplateActivities.parentId,
         name: moduleTemplateActivities.name,
+        nameEs: moduleTemplateActivities.nameEs,
       })
       .from(moduleTemplateActivities)
       .innerJoin(
@@ -111,6 +156,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
         contactName: clients.contactName,
         email: clients.email,
         phone: clients.phone,
+        language: clients.language,
       })
       .from(projectClients)
       .innerJoin(clients, eq(clients.id, projectClients.clientId))
@@ -125,6 +171,13 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
     .orderBy(asc(projects.name));
 
   const linkedIds = linked.map((c) => c.clientId);
+  // Em que outros projetos cada cliente já está (não dá para mover para lá).
+  const elsewhere = linkedIds.length
+    ? await db
+        .select({ clientId: projectClients.clientId, projectId: projectClients.projectId })
+        .from(projectClients)
+        .where(inArray(projectClients.clientId, linkedIds))
+    : [];
   const otherClients = await db
     .select({ id: clients.id, name: clients.name })
     .from(clients)
@@ -215,13 +268,53 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
                     </ConfirmButton>
                   </form>
                 </div>
+                {otherProjects.length > 0 && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-sm text-blue-700 hover:underline">
+                      Mover para outro projeto
+                    </summary>
+                    <form action={moveClient} className="mt-2 flex flex-wrap items-end gap-2">
+                      <input type="hidden" name="projectClientId" value={c.projectClientId} />
+                      <label className={`${ui.label} min-w-48 flex-1`}>
+                        Projeto de destino
+                        <select name="targetProjectId" required defaultValue="" className={ui.input}>
+                          <option value="" disabled>
+                            Escolha…
+                          </option>
+                          {otherProjects.map((p) => {
+                            const already = elsewhere.some(
+                              (e) => e.clientId === c.clientId && e.projectId === p.id,
+                            );
+                            return (
+                              <option key={p.id} value={p.id} disabled={already}>
+                                {p.name}
+                                {already ? " (cliente já está nele)" : ""}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </label>
+                      <ConfirmButton
+                        className={ui.buttonSecondary}
+                        message={`Mover ${c.name} com todos os módulos, atividades, comentários, anexos e vídeos para o outro projeto?`}
+                      >
+                        Mover
+                      </ConfirmButton>
+                    </form>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Vai tudo junto, inclusive os acessos dos usuários deste cliente.
+                      Módulos com o mesmo nome no catálogo do destino ficam ligados a ele;
+                      os demais vão como módulo avulso.
+                    </p>
+                  </details>
+                )}
                 <details className="mt-1">
                   <summary className="cursor-pointer text-sm text-blue-700 hover:underline">
                     Editar dados
                   </summary>
                   {/* key: depois de salvar, o formulário volta com os dados novos. */}
                   <form
-                    key={[c.name, c.cnpj, c.contactName, c.email, c.phone].join("|")}
+                    key={[c.name, c.cnpj, c.contactName, c.email, c.phone, c.language].join("|")}
                     action={updateClient}
                     className="mt-2 flex flex-col gap-3"
                   >
@@ -248,6 +341,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
                           />
                         </label>
                       ))}
+                      <LanguageField defaultValue={c.language} />
                     </div>
                     <p className="text-xs text-slate-500">
                       O cadastro é único: a alteração vale em todos os projetos deste cliente.
@@ -307,6 +401,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
               Telefone
               <input name="phone" maxLength={50} className={ui.input} />
             </label>
+            <LanguageField defaultValue="pt" />
           </div>
           <div>
             <button className={ui.button}>Adicionar cliente</button>
@@ -320,7 +415,8 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
           <h2 className="text-lg font-semibold">Módulos e atividades padrão</h2>
           <p className="text-sm text-slate-600">
             Ao ativar um módulo num cliente, as atividades padrão são criadas
-            automaticamente.
+            automaticamente. Em clientes em espanhol, entram com o nome em espanhol
+            quando ele estiver preenchido.
           </p>
         </div>
         {modules.map((m, i) => (
@@ -334,7 +430,14 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
                   first={i === 0}
                   last={i === modules.length - 1}
                 />
-                <h3 className="font-medium">{m.name}</h3>
+                <h3 className="font-medium">
+                  {m.name}
+                  {m.nameEs && (
+                    <span className="ml-2 text-xs font-normal text-slate-500">
+                      ES: {m.nameEs}
+                    </span>
+                  )}
+                </h3>
               </div>
               <form action={deleteModule}>
                 <input type="hidden" name="moduleId" value={m.id} />
@@ -348,9 +451,13 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
             </div>
             <details>
               <summary className="cursor-pointer text-sm text-blue-700 hover:underline">
-                Renomear
+                Renomear / nome em espanhol
               </summary>
-              <form key={m.name} action={renameModule} className="mt-2 flex gap-2">
+              <form
+                key={`${m.name}|${m.nameEs}`}
+                action={renameModule}
+                className="mt-2 flex flex-wrap gap-2"
+              >
                 <input type="hidden" name="moduleId" value={m.id} />
                 <input
                   name="name"
@@ -360,10 +467,13 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
                   aria-label={`Novo nome de ${m.name}`}
                   className={`${ui.input} flex-1`}
                 />
+                <SpanishNameInput value={m.nameEs} of={m.name} />
                 <button className={ui.buttonSecondary}>Salvar nome</button>
               </form>
               <p className="mt-1 text-xs text-slate-500">
-                Os clientes que já usam este módulo passam a ver o nome novo.
+                Os clientes que já usam este módulo passam a ver o nome novo. Clientes
+                em espanhol recebem o nome em espanhol (vale também para as atividades
+                padrão: clique em &quot;renomear&quot; em cada uma).
               </p>
             </details>
             <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
@@ -431,6 +541,45 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
           />
           <button className={ui.button}>Adicionar módulo</button>
         </form>
+        <details
+          id="importar-espanhol"
+          open={query.importados !== undefined}
+          className={`${ui.card} p-4`}
+        >
+          <summary className="cursor-pointer text-sm font-medium text-blue-700 hover:underline">
+            Importar nomes em espanhol (colar lista)
+          </summary>
+          {query.importados !== undefined && (
+            <div role="status" className="mt-2 text-sm">
+              <p className="text-green-700">
+                {query.importados} nome(s) em espanhol salvos.
+              </p>
+              {query.semTraducao && (
+                <p className="mt-1 text-amber-800">
+                  Sem tradução na lista: {query.semTraducao.split("|").join(", ")}
+                </p>
+              )}
+            </div>
+          )}
+          <form action={importSpanishNames} className="mt-2 flex flex-col gap-2">
+            <input type="hidden" name="projectId" value={project.id} />
+            <textarea
+              name="list"
+              required
+              rows={8}
+              placeholder={"Uma linha por item, no formato Português = Español\nEstoque = Inventario\nProdutos = Productos"}
+              className={`${ui.input} font-mono text-xs`}
+            />
+            <p className="text-xs text-slate-500">
+              Vale para módulos, atividades e subatividades deste projeto. Linhas
+              começando com # são ignoradas. Maiúsculas, acentos e espaços não
+              atrapalham a busca do nome em português.
+            </p>
+            <div>
+              <button className={ui.buttonSecondary}>Importar</button>
+            </div>
+          </form>
+        </details>
         {otherProjects.length > 0 && (
           <form action={copyModulesFrom} className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="projectId" value={project.id} />
@@ -454,14 +603,54 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
           </form>
         )}
       </section>
+      {/* Excluir projeto com tudo; confirma digitando o nome. */}
+      <section
+        id="excluir"
+        className={`${ui.card} flex flex-col gap-2 border-red-200 p-4`}
+      >
+        <h2 className="font-semibold text-red-800">Excluir projeto</h2>
+        <p className="text-sm text-slate-600">
+          Apaga o projeto e tudo dentro dele
+          {linked.length > 0 &&
+            ` (${linked.length === 1 ? "1 cliente" : `${linked.length} clientes`} com módulos, atividades, comentários, anexos e vídeos)`}
+          , além do catálogo de módulos. O cadastro dos clientes continua existindo.
+          Não tem volta. Para só esconder, desmarque &quot;Projeto ativo&quot; acima.
+        </p>
+        <form action={deleteProject} className="flex flex-wrap items-end gap-2">
+          <input type="hidden" name="projectId" value={project.id} />
+          <label className={`${ui.label} min-w-60 flex-1`}>
+            Digite o nome do projeto para confirmar: {project.name}
+            <input name="confirmName" required autoComplete="off" className={ui.input} />
+          </label>
+          <ConfirmButton
+            className={ui.buttonDanger}
+            message={`Excluir o projeto ${project.name} e tudo dentro dele? Não tem volta.`}
+          >
+            Excluir projeto
+          </ConfirmButton>
+        </form>
+        {wrongName && (
+          <p role="alert" className="text-sm text-red-700">
+            O nome digitado não confere. Nada foi excluído.
+          </p>
+        )}
+      </section>
     </div>
   );
 }
 
-export default function ProjectPage({ params }: PageProps<"/admin/projetos/[id]">) {
+export default function ProjectPage({
+  params,
+  searchParams,
+}: PageProps<"/admin/projetos/[id]">) {
   return (
     <Suspense fallback={<p className="text-slate-500">Carregando…</p>}>
-      <ProjectDetail params={params} />
+      <ProjectDetail
+        params={params}
+        searchParams={
+          searchParams as Promise<{ excluir?: string; importados?: string; semTraducao?: string }>
+        }
+      />
     </Suspense>
   );
 }

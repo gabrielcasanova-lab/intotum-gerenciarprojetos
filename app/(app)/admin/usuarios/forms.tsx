@@ -7,7 +7,12 @@ import { createUser, resetPassword, sendLink } from "./actions";
 export function CreateUserForm() {
   const [state, action, pending] = useActionState(createUser, undefined);
   // Controlados: o React limpa o formulário após a ação e um erro apagaria tudo.
-  const [fields, setFields] = useState({ name: "", email: "", role: "equipe" });
+  const [fields, setFields] = useState({
+    name: "",
+    email: "",
+    role: "equipe",
+    language: "pt",
+  });
   const bind = (key: keyof typeof fields) => ({
     name: key,
     value: fields[key],
@@ -32,6 +37,13 @@ export function CreateUserForm() {
             <option value="equipe">Equipe</option>
             <option value="cliente">Cliente</option>
             <option value="admin">Administrador</option>
+          </select>
+        </label>
+        <label className={ui.label}>
+          Idioma (telas e e-mails)
+          <select {...bind("language")} className={ui.input}>
+            <option value="pt">Português</option>
+            <option value="es">Español</option>
           </select>
         </label>
         <label className={ui.label}>

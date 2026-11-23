@@ -16,12 +16,11 @@ import {
   formatDate,
   IMPLEMENTATION_STATUSES,
   implementationStatusColor,
-  implementationStatusLabel,
   statusColor,
-  statusLabel,
   STATUSES,
   type Status,
 } from "@/lib/labels";
+import { dictionary, type Dictionary } from "@/lib/i18n";
 import { isOverdue, percentDone, todayInBrazil } from "@/lib/progress";
 import * as ui from "@/lib/ui/styles";
 import { AutoSubmitSelect } from "@/components/auto-submit-select";
@@ -52,10 +51,10 @@ type Row = {
   assigneeName: string | null;
 };
 
-function StatusBadge({ status }: { status: Status }) {
+function StatusBadge({ status, t }: { status: Status; t: Dictionary }) {
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs ${statusColor[status]}`}>
-      {statusLabel[status]}
+      {t.status[status]}
     </span>
   );
 }
@@ -77,6 +76,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
   const access = await getClientAccess(user, pc);
   if (!access) notFound();
   const editable = access.level === "editar";
+  const t = dictionary(user.language);
 
   const modules = await db
     .select()
@@ -163,18 +163,18 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
           <AutoSubmitSelect
             name="status"
             defaultValue={a.status}
-            aria-label={`Status de ${a.name}`}
+            aria-label={t.statusOf(a.name)}
             className={`rounded-full border-0 px-2 py-0.5 text-xs ${statusColor[a.status]}`}
           >
             {STATUSES.map((s) => (
               <option key={s} value={s}>
-                {statusLabel[s]}
+                {t.status[s]}
               </option>
             ))}
           </AutoSubmitSelect>
         </form>
       ) : (
-        <StatusBadge status={a.status} />
+        <StatusBadge status={a.status} t={t} />
       )}
       {editable && (
         <form action={deleteActivity}>
@@ -182,9 +182,9 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
           <input type="hidden" name="activityId" value={a.id} />
           <ConfirmButton
             className="rounded px-1.5 text-slate-400 hover:bg-red-50 hover:text-red-700"
-            aria-label={`Excluir ${a.name}`}
-            title="Excluir atividade"
-            message={`Excluir a atividade "${a.name}" deste cliente? Os comentários dela também serão apagados.`}
+            aria-label={t.deleteNamed(a.name)}
+            title={t.deleteActivity}
+            message={t.confirmDeleteActivityFromList(a.name)}
           >
             ×
           </ConfirmButton>
@@ -197,7 +197,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
     <div className="flex flex-col gap-6">
       <div>
         <Link href="/" className="text-sm text-blue-700 hover:underline">
-          ← Clientes
+          {t.backToClients}
         </Link>
         <h1 className="mt-1 text-2xl font-semibold">{access.clientName}</h1>
         <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
@@ -208,19 +208,19 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
               <AutoSubmitSelect
                 name="status"
                 defaultValue={access.status}
-                aria-label="Situação da implantação"
-                title="Situação da implantação"
+                aria-label={t.implementationStatusTitle}
+                title={t.implementationStatusTitle}
                 className={`rounded-full border-0 px-2 py-0.5 text-xs ${implementationStatusColor[access.status]}`}
               >
                 {IMPLEMENTATION_STATUSES.map((s) => (
                   <option key={s} value={s}>
-                    {implementationStatusLabel[s]}
+                    {t.implementationStatus[s]}
                   </option>
                 ))}
               </AutoSubmitSelect>
             </form>
           ) : (
-            <ImplementationBadge status={access.status} />
+            <ImplementationBadge status={access.status} language={user.language} />
           )}
           {rows.length > 0 && <ProgressBar value={overall} />}
           {/* Link comum (não Link): o navegador abre o PDF numa aba nova. */}
@@ -230,7 +230,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
             rel="noopener"
             className={ui.buttonSecondary}
           >
-            Baixar PDF
+            {t.downloadPdf}
           </a>
           <a
             href={`/c/${pc}/pdf?comentarios=1`}
@@ -238,14 +238,14 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
             rel="noopener"
             className="text-sm text-blue-700 hover:underline"
           >
-            PDF com comentários para o cliente
+            {t.pdfWithComments}
           </a>
         </div>
       </div>
 
       {modules.length === 0 && (
         <p className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-slate-600">
-          Nenhum módulo ativado para este cliente ainda.
+          {t.noModules}
         </p>
       )}
 
@@ -261,6 +261,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                     action={moveClientModule}
                     fields={{ projectClientId: pc, clientModuleId: m.id }}
                     name={m.name}
+                    labels={{ up: t.moveUp(m.name), down: t.moveDown(m.name) }}
                     first={i === 0}
                     last={i === modules.length - 1}
                   />
@@ -277,9 +278,9 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                     <input type="hidden" name="clientModuleId" value={m.id} />
                     <ConfirmButton
                       className={ui.buttonDanger}
-                      message={`Remover o módulo ${m.name} e todas as atividades dele?`}
+                      message={t.confirmRemoveModule(m.name)}
                     >
-                      Remover módulo
+                      {t.removeModule}
                     </ConfirmButton>
                   </form>
                 )}
@@ -289,7 +290,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
             {editable && (
               <details className="mt-1">
                 <summary className="cursor-pointer text-xs text-blue-700 hover:underline">
-                  Renomear módulo
+                  {t.renameModule}
                 </summary>
                 <form
                   key={m.name}
@@ -303,10 +304,10 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                     required
                     maxLength={200}
                     defaultValue={m.name}
-                    aria-label={`Novo nome de ${m.name}`}
+                    aria-label={t.newNameOf(m.name)}
                     className={`${ui.input} flex-1`}
                   />
-                  <button className={ui.buttonSecondary}>Salvar nome</button>
+                  <button className={ui.buttonSecondary}>{t.saveName}</button>
                 </form>
               </details>
             )}
@@ -319,7 +320,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                 ])}
               </ul>
             ) : (
-              <p className="mt-2 text-sm text-slate-500">Sem atividades.</p>
+              <p className="mt-2 text-sm text-slate-500">{t.noActivities}</p>
             )}
 
             {editable && (
@@ -330,28 +331,28 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                   name="name"
                   required
                   maxLength={300}
-                  placeholder="Nova atividade"
-                  aria-label={`Nova atividade em ${m.name}`}
+                  placeholder={t.newActivity}
+                  aria-label={t.newActivityIn(m.name)}
                   className={`${ui.input} min-w-48 flex-1`}
                 />
                 {access.allowSubactivities && top.length > 0 ? (
                   <StickySelect
                     name="parentId"
                     defaultValue=""
-                    aria-label="Dentro de"
+                    aria-label={t.inside}
                     className={ui.input}
                   >
-                    <option value="">Atividade principal</option>
+                    <option value="">{t.mainActivity}</option>
                     {top.map((a) => (
                       <option key={a.id} value={a.id}>
-                        Subatividade de: {a.name}
+                        {t.subactivityOf}: {a.name}
                       </option>
                     ))}
                   </StickySelect>
                 ) : (
                   <input type="hidden" name="parentId" value="" />
                 )}
-                <button className={ui.buttonSecondary}>Adicionar</button>
+                <button className={ui.buttonSecondary}>{t.add}</button>
               </form>
             )}
           </section>
@@ -359,7 +360,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
       })}
 
       <section className={`${ui.card} flex flex-col gap-3 p-4`}>
-        <h2 className="text-lg font-semibold">Treinamentos gravados</h2>
+        <h2 className="text-lg font-semibold">{t.trainings}</h2>
         {videos.length > 0 ? (
           <ul className="divide-y divide-slate-100">
             {videos.map((v) => (
@@ -383,9 +384,9 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                     <input type="hidden" name="videoId" value={v.id} />
                     <ConfirmButton
                       className={ui.buttonDanger}
-                      message={`Remover o link "${v.title}"? O vídeo em si não é apagado.`}
+                      message={t.confirmRemoveVideo(v.title)}
                     >
-                      Remover
+                      {t.remove}
                     </ConfirmButton>
                   </form>
                 )}
@@ -393,23 +394,23 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-slate-500">Nenhum treinamento gravado ainda.</p>
+          <p className="text-sm text-slate-500">{t.noTrainings}</p>
         )}
         {editable && (
           <form action={addTrainingVideo} className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="projectClientId" value={pc} />
             <label className={`${ui.label} min-w-48 flex-1`}>
-              Título
+              {t.title}
               <input
                 name="title"
                 required
                 maxLength={300}
-                placeholder="Ex.: Treinamento de Estoque"
+                placeholder={t.titlePlaceholder}
                 className={ui.input}
               />
             </label>
             <label className={`${ui.label} min-w-48 flex-[2]`}>
-              Link do vídeo
+              {t.videoLink}
               <input
                 name="url"
                 type="url"
@@ -420,10 +421,10 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
               />
             </label>
             <label className={ui.label}>
-              Data
+              {t.date}
               <input name="recordedOn" type="date" className={ui.input} />
             </label>
-            <button className={ui.buttonSecondary}>Adicionar</button>
+            <button className={ui.buttonSecondary}>{t.add}</button>
           </form>
         )}
       </section>
@@ -436,7 +437,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
           <input type="hidden" name="projectClientId" value={pc} />
           <fieldset className="flex flex-col gap-2">
             <legend className="mb-2 text-sm font-medium">
-              Ativar módulos do catálogo (marque um ou vários)
+              {t.activateModules}
             </legend>
             {catalog.length > 0 ? (
               <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
@@ -454,21 +455,21 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
                         disabled={used}
                       />
                       {c.name}
-                      {used && <span className="text-xs">(já ativado)</span>}
+                      {used && <span className="text-xs">{t.alreadyActive}</span>}
                     </label>
                   );
                 })}
               </div>
             ) : (
-              <p className="text-sm text-slate-500">O catálogo deste projeto está vazio.</p>
+              <p className="text-sm text-slate-500">{t.emptyCatalog}</p>
             )}
           </fieldset>
           <div className="flex flex-wrap items-end gap-3">
             <label className={`${ui.label} min-w-48 flex-1`}>
-              Módulo avulso (opcional, fora do catálogo)
+              {t.looseModule}
               <input name="name" maxLength={200} className={ui.input} />
             </label>
-            <button className={ui.button}>Ativar módulos</button>
+            <button className={ui.button}>{t.activateButton}</button>
           </div>
         </form>
       )}
@@ -478,7 +479,7 @@ async function ClientDetail({ params }: { params: Promise<{ pc: string }> }) {
 
 export default function ClientPage({ params }: PageProps<"/c/[pc]">) {
   return (
-    <Suspense fallback={<p className="text-slate-500">Carregando…</p>}>
+    <Suspense fallback={<p className="text-slate-500">…</p>}>
       <ClientDetail params={params} />
     </Suspense>
   );

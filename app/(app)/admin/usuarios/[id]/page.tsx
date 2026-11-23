@@ -15,7 +15,9 @@ import { isUuid } from "@/lib/data/access";
 import { roleLabel } from "@/lib/labels";
 import * as ui from "@/lib/ui/styles";
 import { ConfirmButton } from "@/components/confirm-button";
-import { addGrant, removeGrant, setUserActive } from "../actions";
+import { addGrant, removeGrant, setUserActive, setUserLanguage } from "../actions";
+import { AutoSubmitSelect } from "@/components/auto-submit-select";
+import { LANGUAGES, languageName } from "@/lib/i18n";
 import { ResetPasswordForm, SendLinkForm } from "../forms";
 
 async function UserDetail({
@@ -177,6 +179,29 @@ async function UserDetail({
 
       <section className={`${ui.card} flex flex-col gap-4 p-4`}>
         <h2 className="font-semibold">Conta</h2>
+        <form key={user.language} action={setUserLanguage} className="flex flex-col gap-1">
+          <input type="hidden" name="userId" value={user.id} />
+          <label className={`${ui.label} max-w-xs`}>
+            Idioma das telas e dos e-mails
+            <AutoSubmitSelect
+              name="language"
+              defaultValue={user.language}
+              className={ui.input}
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l} value={l}>
+                  {languageName[l]}
+                </option>
+              ))}
+            </AutoSubmitSelect>
+          </label>
+          {isClientUser && (
+            <p className="text-xs text-slate-500">
+              Ao dar acesso a um cliente, a pessoa passa a usar o idioma do cadastro
+              desse cliente. A própria pessoa também pode trocar no topo da tela.
+            </p>
+          )}
+        </form>
         <SendLinkForm userId={user.id} hasPassword={Boolean(user.passwordHash)} />
         <ResetPasswordForm userId={user.id} />
         {user.id !== admin.id && (
