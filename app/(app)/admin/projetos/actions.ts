@@ -506,6 +506,77 @@ export async function updateClient(formData: FormData) {
   refresh();
 }
 
+/**
+ * Move um cliente (com módulos, atividades, comentários, anexos, vídeos e
+ * acessos) para outro projeto. Basta trocar o projeto do vínculo; os módulos
+ * são religados ao catálogo do destino pelo nome (senão ficam avulsos).
+ */
+export async function moveClient(formData: FormData) {
+  const admin = await requireAdmin();
+  const { projectClientId, targetProjectId } = z
+    .object({ projectClientId: id, targetProjectId: id })
+    .parse(Object.fromEntries(formData));
+  const [link] = await db
+    .select()
+    .from(projectClients)
+    .where(eq(projectClients.id, projectClientId));
+  if (!link) throw new Error("Cliente não encontrado neste projeto.");
+  if (link.projectId === targetProjectId) return refresh();
+  const [target] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, targetProjectId));
+  if (!target) throw new Error("Projeto de destino não encontrado.");
+  const [already] = await db
+    .select({ id: projectClients.id })
+    .from(projectClients)
+    .where(
+      and(
+        eq(projectClients.projectId, targetProjectId),
+        eq(projectClients.clientId, link.clientId),
+      ),
+    );
+  if (already) throw new Error("O cliente já está no projeto de destino.");
+
+  const [mods, targetCatalog] = await Promise.all([
+    db
+      .select({ id: clientModules.id, catalogId: clientModules.moduleCatalogId })
+      .from(clientModules)
+      .where(eq(clientModules.projectClientId, projectClientId)),
+    db
+      .select()
+      .from(moduleCatalog)
+      .where(eq(moduleCatalog.projectId, targetProjectId)),
+  ]);
+  const sourceCatalog = mods.some((m) => m.catalogId)
+    ? await db
+        .select()
+        .from(moduleCatalog)
+        .where(eq(moduleCatalog.projectId, link.projectId))
+    : [];
+  const norm = (v: string) => v.trim().replace(/\s+/g, " ").toLowerCase();
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(projectClients)
+      .set({ projectId: targetProjectId })
+      .where(eq(projectClients.id, projectClientId));
+    for (const m of mods) {
+      const from = sourceCatalog.find((c) => c.id === m.catalogId);
+      const to = from && targetCatalog.find((c) => norm(c.name) === norm(from.name));
+      await tx
+        .update(clientModules)
+        .set({ moduleCatalogId: to?.id ?? null })
+        .where(eq(clientModules.id, m.id));
+    }
+  });
+  await logAudit(admin.id, "cliente_projeto", projectClientId, "alterar", {
+    moveuDe: link.projectId,
+    para: targetProjectId,
+  });
+  redirect(`/admin/projetos/${targetProjectId}`);
+}
+
 export async function unlinkClient(formData: FormData) {
   const admin = await requireAdmin();
   const { projectId, projectClientId } = z

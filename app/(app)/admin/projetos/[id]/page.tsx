@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { asc, eq, ne, notInArray } from "drizzle-orm";
+import { asc, eq, inArray, ne, notInArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   clients,
@@ -25,6 +25,7 @@ import {
   deleteModule,
   deleteProject,
   deleteTemplateActivity,
+  moveClient,
   moveModule,
   renameModule,
   renameTemplateActivity,
@@ -168,6 +169,13 @@ async function ProjectDetail({
     .orderBy(asc(projects.name));
 
   const linkedIds = linked.map((c) => c.clientId);
+  // Em que outros projetos cada cliente já está (não dá para mover para lá).
+  const elsewhere = linkedIds.length
+    ? await db
+        .select({ clientId: projectClients.clientId, projectId: projectClients.projectId })
+        .from(projectClients)
+        .where(inArray(projectClients.clientId, linkedIds))
+    : [];
   const otherClients = await db
     .select({ id: clients.id, name: clients.name })
     .from(clients)
@@ -258,6 +266,46 @@ async function ProjectDetail({
                     </ConfirmButton>
                   </form>
                 </div>
+                {otherProjects.length > 0 && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-sm text-blue-700 hover:underline">
+                      Mover para outro projeto
+                    </summary>
+                    <form action={moveClient} className="mt-2 flex flex-wrap items-end gap-2">
+                      <input type="hidden" name="projectClientId" value={c.projectClientId} />
+                      <label className={`${ui.label} min-w-48 flex-1`}>
+                        Projeto de destino
+                        <select name="targetProjectId" required defaultValue="" className={ui.input}>
+                          <option value="" disabled>
+                            Escolha…
+                          </option>
+                          {otherProjects.map((p) => {
+                            const already = elsewhere.some(
+                              (e) => e.clientId === c.clientId && e.projectId === p.id,
+                            );
+                            return (
+                              <option key={p.id} value={p.id} disabled={already}>
+                                {p.name}
+                                {already ? " (cliente já está nele)" : ""}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </label>
+                      <ConfirmButton
+                        className={ui.buttonSecondary}
+                        message={`Mover ${c.name} com todos os módulos, atividades, comentários, anexos e vídeos para o outro projeto?`}
+                      >
+                        Mover
+                      </ConfirmButton>
+                    </form>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Vai tudo junto, inclusive os acessos dos usuários deste cliente.
+                      Módulos com o mesmo nome no catálogo do destino ficam ligados a ele;
+                      os demais vão como módulo avulso.
+                    </p>
+                  </details>
+                )}
                 <details className="mt-1">
                   <summary className="cursor-pointer text-sm text-blue-700 hover:underline">
                     Editar dados
