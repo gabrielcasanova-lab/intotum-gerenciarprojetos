@@ -23,6 +23,7 @@ import { splitNames } from "@/lib/names";
 import { moveInOrder } from "@/lib/order";
 import { copyTree } from "@/lib/tree";
 import { removeUploads } from "@/lib/uploads";
+import { syncCatalogNames } from "@/lib/data/catalog-names";
 
 const text = (max = 200) => z.string().trim().min(1).max(max);
 const optionalText = (max = 2000) =>
@@ -171,7 +172,7 @@ export async function copyModulesFrom(formData: FormData) {
     for (const [i, m] of toCopy.entries()) {
       const [mod] = await tx
         .insert(moduleCatalog)
-        .values({ projectId, name: m.name, position: first + i })
+        .values({ projectId, name: m.name, nameEs: m.nameEs, position: first + i })
         .returning({ id: moduleCatalog.id });
       const list = templates.filter((t) => t.moduleCatalogId === m.id);
       const { parents, children } = copyTree(list, () => crypto.randomUUID());
@@ -183,6 +184,7 @@ export async function copyModulesFrom(formData: FormData) {
             moduleCatalogId: mod.id,
             parentId: r.parentId,
             name: r.item.name,
+            nameEs: r.item.nameEs,
             description: r.item.description,
             position: r.item.position,
           })),
@@ -203,36 +205,31 @@ export async function copyModulesFrom(formData: FormData) {
  */
 export async function renameModule(formData: FormData) {
   const admin = await requireAdmin();
-  const { moduleId, name } = z
-    .object({ moduleId: id, name: text() })
+  const { moduleId, name, nameEs } = z
+    .object({ moduleId: id, name: text(), nameEs: optionalText(200) })
     .parse(Object.fromEntries(formData));
   const newName = name.replace(/\s+/g, " ");
+  const newNameEs = nameEs?.replace(/\s+/g, " ") || null;
 
   const [mod] = await db
     .select()
     .from(moduleCatalog)
     .where(eq(moduleCatalog.id, moduleId));
   if (!mod) throw new Error("Módulo não encontrado.");
-  if (mod.name === newName) return refresh();
+  if (mod.name === newName && mod.nameEs === newNameEs) return refresh();
 
+  // Clientes que ainda usam o nome do catálogo passam a ver o nome novo
+  // (os em espanhol, o nome em espanhol).
   await db.transaction(async (tx) => {
     await tx
       .update(moduleCatalog)
-      .set({ name: newName })
+      .set({ name: newName, nameEs: newNameEs })
       .where(eq(moduleCatalog.id, moduleId));
-    await tx
-      .update(clientModules)
-      .set({ name: newName })
-      .where(
-        and(
-          eq(clientModules.moduleCatalogId, moduleId),
-          eq(clientModules.name, mod.name),
-        ),
-      );
+    await syncCatalogNames(tx, { moduleCatalogIds: [moduleId] }, new Map([[mod.id, mod]]));
   });
   await logAudit(admin.id, "modulo_catalogo", moduleId, "alterar", {
-    de: mod.name,
-    para: newName,
+    de: [mod.name, mod.nameEs],
+    para: [newName, newNameEs],
   });
   refresh();
 }
@@ -339,40 +336,33 @@ export async function addTemplateActivity(formData: FormData) {
  */
 export async function renameTemplateActivity(formData: FormData) {
   const admin = await requireAdmin();
-  const { templateId, name } = z
-    .object({ templateId: id, name: text() })
+  const { templateId, name, nameEs } = z
+    .object({ templateId: id, name: text(), nameEs: optionalText(200) })
     .parse(Object.fromEntries(formData));
   const newName = name.replace(/\s+/g, " ");
+  const newNameEs = nameEs?.replace(/\s+/g, " ") || null;
 
   const [tpl] = await db
     .select()
     .from(moduleTemplateActivities)
     .where(eq(moduleTemplateActivities.id, templateId));
   if (!tpl) throw new Error("Atividade padrão não encontrada.");
-  if (tpl.name === newName) return refresh();
+  if (tpl.name === newName && tpl.nameEs === newNameEs) return refresh();
 
   await db.transaction(async (tx) => {
     await tx
       .update(moduleTemplateActivities)
-      .set({ name: newName })
+      .set({ name: newName, nameEs: newNameEs })
       .where(eq(moduleTemplateActivities.id, templateId));
-    const linked = tx
-      .select({ id: clientModules.id })
-      .from(clientModules)
-      .where(eq(clientModules.moduleCatalogId, tpl.moduleCatalogId));
-    await tx
-      .update(activities)
-      .set({ name: newName })
-      .where(
-        and(
-          inArray(activities.clientModuleId, linked),
-          eq(activities.name, tpl.name),
-        ),
-      );
+    await syncCatalogNames(
+      tx,
+      { moduleCatalogIds: [tpl.moduleCatalogId] },
+      new Map([[tpl.id, tpl]]),
+    );
   });
   await logAudit(admin.id, "atividade_modelo", templateId, "alterar", {
-    de: tpl.name,
-    para: newName,
+    de: [tpl.name, tpl.nameEs],
+    para: [newName, newNameEs],
   });
   refresh();
 }
@@ -449,7 +439,21 @@ export async function updateClient(formData: FormData) {
     })
     .parse(Object.fromEntries(formData));
 
+  const [before] = await db
+    .select({ language: clients.language })
+    .from(clients)
+    .where(eq(clients.id, clientId));
   await db.update(clients).set(values).where(eq(clients.id, clientId));
+  // Trocou o idioma: módulos e atividades do catálogo passam para o idioma novo.
+  if (before && before.language !== values.language) {
+    const links = await db
+      .select({ id: projectClients.id })
+      .from(projectClients)
+      .where(eq(projectClients.clientId, clientId));
+    await db.transaction((tx) =>
+      syncCatalogNames(tx, { projectClientIds: links.map((l) => l.id) }),
+    );
+  }
   // Os usuários deste cliente acompanham o idioma do cadastro.
   const clientUsers = db
     .select({ userId: accessGrants.userId })

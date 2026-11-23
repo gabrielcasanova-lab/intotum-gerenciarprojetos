@@ -22,6 +22,7 @@ import { logAudit } from "@/lib/audit";
 import { IMPLEMENTATION_STATUSES, PRIORITIES, STATUSES } from "@/lib/labels";
 import { moveInOrder } from "@/lib/order";
 import { copyTree } from "@/lib/tree";
+import { catalogName } from "@/lib/catalog-names";
 import { statusDates, todayInBrazil } from "@/lib/progress";
 import { MAX_UPLOAD_BYTES, removeUploads, saveUpload } from "@/lib/uploads";
 
@@ -111,7 +112,11 @@ export async function activateModule(formData: FormData) {
   }
   // Na ordem do catálogo; o módulo avulso (se informado) vai por último.
   const toActivate: { name: string; catalogId: string | null }[] = [
-    ...chosen.map((m) => ({ name: m.name, catalogId: m.id })),
+    // Cliente em espanhol recebe os nomes em espanhol do catálogo, quando houver.
+    ...chosen.map((m) => ({
+      name: catalogName(m, access.clientLanguage),
+      catalogId: m.id,
+    })),
     ...(data.name ? [{ name: data.name, catalogId: null }] : []),
   ];
   if (toActivate.length === 0) {
@@ -151,7 +156,7 @@ export async function activateModule(formData: FormData) {
               id: r.id,
               clientModuleId: cm.id,
               parentId: r.parentId,
-              name: r.item.name,
+              name: catalogName(r.item, access.clientLanguage),
               description: r.item.description,
               position: position.get(r.item.id)!,
             })),

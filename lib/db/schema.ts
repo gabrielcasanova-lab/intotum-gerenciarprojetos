@@ -214,6 +214,8 @@ export const moduleCatalog = pgTable("module_catalog", {
     .notNull()
     .references(() => projects.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  // Nome usado nos clientes em espanhol (opcional; vazio = mesmo nome).
+  nameEs: text("name_es"),
   position: integer("position").notNull().default(0),
 });
 
@@ -229,6 +231,8 @@ export const moduleTemplateActivities = pgTable("module_template_activities", {
     { onDelete: "cascade" },
   ),
   name: text("name").notNull(),
+  // Nome usado nos clientes em espanhol (opcional; vazio = mesmo nome).
+  nameEs: text("name_es"),
   description: text("description"),
   position: integer("position").notNull().default(0),
 });

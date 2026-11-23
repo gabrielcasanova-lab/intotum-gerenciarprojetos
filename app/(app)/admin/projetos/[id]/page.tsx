@@ -32,7 +32,6 @@ import {
   updateProject,
 } from "../actions";
 
-/** Uma atividade padrão do catálogo: nome, renomear e excluir. */
 /** Idioma do cliente: o do PDF e o dos usuários desse cliente. */
 function LanguageField({ defaultValue }: { defaultValue: Language }) {
   return (
@@ -49,7 +48,22 @@ function LanguageField({ defaultValue }: { defaultValue: Language }) {
   );
 }
 
-function TemplateItem({ t }: { t: { id: string; name: string } }) {
+/** Campo opcional com o nome usado nos clientes em espanhol. */
+function SpanishNameInput({ value, of }: { value: string | null; of: string }) {
+  return (
+    <input
+      name="nameEs"
+      maxLength={200}
+      defaultValue={value ?? ""}
+      placeholder="Nome em espanhol (opcional)"
+      aria-label={`Nome em espanhol de ${of}`}
+      className={`${ui.input} flex-1`}
+    />
+  );
+}
+
+/** Uma atividade padrão do catálogo: nome, renomear e excluir. */
+function TemplateItem({ t }: { t: { id: string; name: string; nameEs: string | null } }) {
   return (
     <div>
       {/* O botão "excluir" fica na linha do nome e envia este formulário (atributo form). */}
@@ -59,6 +73,7 @@ function TemplateItem({ t }: { t: { id: string; name: string } }) {
       <details>
         <summary className="inline-flex cursor-pointer list-none items-center gap-2">
           {t.name}
+          {t.nameEs && <span className="text-xs text-slate-500">ES: {t.nameEs}</span>}
           <span className="text-xs text-blue-700 hover:underline">
             renomear
           </span>
@@ -71,9 +86,9 @@ function TemplateItem({ t }: { t: { id: string; name: string } }) {
           </button>
         </summary>
         <form
-          key={t.name}
+          key={`${t.name}|${t.nameEs}`}
           action={renameTemplateActivity}
-          className="my-1 flex gap-2"
+          className="my-1 flex flex-wrap gap-2"
         >
           <input type="hidden" name="templateId" value={t.id} />
           <input
@@ -84,6 +99,7 @@ function TemplateItem({ t }: { t: { id: string; name: string } }) {
             aria-label={`Novo nome de ${t.name}`}
             className={`${ui.input} flex-1`}
           />
+          <SpanishNameInput value={t.nameEs} of={t.name} />
           <button className={ui.buttonSecondary}>Salvar</button>
         </form>
       </details>
@@ -111,6 +127,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
         moduleCatalogId: moduleTemplateActivities.moduleCatalogId,
         parentId: moduleTemplateActivities.parentId,
         name: moduleTemplateActivities.name,
+        nameEs: moduleTemplateActivities.nameEs,
       })
       .from(moduleTemplateActivities)
       .innerJoin(
@@ -340,7 +357,8 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
           <h2 className="text-lg font-semibold">Módulos e atividades padrão</h2>
           <p className="text-sm text-slate-600">
             Ao ativar um módulo num cliente, as atividades padrão são criadas
-            automaticamente.
+            automaticamente. Em clientes em espanhol, entram com o nome em espanhol
+            quando ele estiver preenchido.
           </p>
         </div>
         {modules.map((m, i) => (
@@ -354,7 +372,14 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
                   first={i === 0}
                   last={i === modules.length - 1}
                 />
-                <h3 className="font-medium">{m.name}</h3>
+                <h3 className="font-medium">
+                  {m.name}
+                  {m.nameEs && (
+                    <span className="ml-2 text-xs font-normal text-slate-500">
+                      ES: {m.nameEs}
+                    </span>
+                  )}
+                </h3>
               </div>
               <form action={deleteModule}>
                 <input type="hidden" name="moduleId" value={m.id} />
@@ -368,9 +393,13 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
             </div>
             <details>
               <summary className="cursor-pointer text-sm text-blue-700 hover:underline">
-                Renomear
+                Renomear / nome em espanhol
               </summary>
-              <form key={m.name} action={renameModule} className="mt-2 flex gap-2">
+              <form
+                key={`${m.name}|${m.nameEs}`}
+                action={renameModule}
+                className="mt-2 flex flex-wrap gap-2"
+              >
                 <input type="hidden" name="moduleId" value={m.id} />
                 <input
                   name="name"
@@ -380,10 +409,13 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
                   aria-label={`Novo nome de ${m.name}`}
                   className={`${ui.input} flex-1`}
                 />
+                <SpanishNameInput value={m.nameEs} of={m.name} />
                 <button className={ui.buttonSecondary}>Salvar nome</button>
               </form>
               <p className="mt-1 text-xs text-slate-500">
-                Os clientes que já usam este módulo passam a ver o nome novo.
+                Os clientes que já usam este módulo passam a ver o nome novo. Clientes
+                em espanhol recebem o nome em espanhol (vale também para as atividades
+                padrão: clique em &quot;renomear&quot; em cada uma).
               </p>
             </details>
             <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
