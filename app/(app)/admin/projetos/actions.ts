@@ -49,6 +49,28 @@ export async function createProject(formData: FormData) {
   redirect(`/admin/projetos/${project.id}`);
 }
 
+/** Exclui um projeto sem clientes (catálogo e acessos ao projeto vão junto). */
+export async function deleteProject(formData: FormData) {
+  const admin = await requireAdmin();
+  const projectId = id.parse(formData.get("projectId"));
+  const [project] = await db
+    .select({ name: projects.name })
+    .from(projects)
+    .where(eq(projects.id, projectId));
+  if (!project) redirect("/admin/projetos");
+  const [hasClient] = await db
+    .select({ id: projectClients.id })
+    .from(projectClients)
+    .where(eq(projectClients.projectId, projectId))
+    .limit(1);
+  if (hasClient) {
+    throw new Error("Remova os clientes do projeto antes de excluí-lo.");
+  }
+  await db.delete(projects).where(eq(projects.id, projectId));
+  await logAudit(admin.id, "projeto", projectId, "excluir", { name: project.name });
+  redirect("/admin/projetos");
+}
+
 export async function updateProject(formData: FormData) {
   const admin = await requireAdmin();
   const data = z

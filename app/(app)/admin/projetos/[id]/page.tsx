@@ -23,6 +23,7 @@ import {
   addTemplateActivity,
   copyModulesFrom,
   deleteModule,
+  deleteProject,
   deleteTemplateActivity,
   moveModule,
   renameModule,
@@ -503,6 +504,27 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
             <p className="w-full text-xs text-slate-500">
               Módulos com o mesmo nome que já existem aqui não são copiados de novo.
             </p>
+          </form>
+        )}
+      </section>
+      {/* Excluir projeto: só sem clientes, para não apagar histórico por engano. */}
+      <section className={`${ui.card} flex flex-col gap-2 border-red-200 p-4`}>
+        <h2 className="font-semibold text-red-800">Excluir projeto</h2>
+        {linked.length > 0 ? (
+          <p className="text-sm text-slate-600">
+            Este projeto tem {linked.length === 1 ? "1 cliente" : `${linked.length} clientes`}.
+            Para excluir, remova antes os clientes dele (botão &quot;Remover&quot; em
+            Clientes). Para só esconder, desmarque &quot;Projeto ativo&quot; acima.
+          </p>
+        ) : (
+          <form action={deleteProject}>
+            <input type="hidden" name="projectId" value={project.id} />
+            <ConfirmButton
+              className={ui.buttonDanger}
+              message={`Excluir o projeto ${project.name}? O catálogo de módulos e os acessos dados ao projeto também serão apagados. Não tem volta.`}
+            >
+              Excluir projeto
+            </ConfirmButton>
           </form>
         )}
       </section>
