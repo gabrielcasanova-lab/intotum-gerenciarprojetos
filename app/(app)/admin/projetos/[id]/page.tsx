@@ -16,6 +16,7 @@ import * as ui from "@/lib/ui/styles";
 import { ConfirmButton } from "@/components/confirm-button";
 import { StickySelect } from "@/components/sticky-select";
 import { MoveButtons } from "@/components/move-buttons";
+import { LANGUAGES, languageName, type Language } from "@/lib/i18n";
 import {
   addClientToProject,
   addModule,
@@ -32,6 +33,22 @@ import {
 } from "../actions";
 
 /** Uma atividade padrão do catálogo: nome, renomear e excluir. */
+/** Idioma do cliente: o do PDF e o dos usuários desse cliente. */
+function LanguageField({ defaultValue }: { defaultValue: Language }) {
+  return (
+    <label className={ui.label}>
+      Idioma (PDF e usuários do cliente)
+      <select name="language" defaultValue={defaultValue} className={ui.input}>
+        {LANGUAGES.map((l) => (
+          <option key={l} value={l}>
+            {languageName[l]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function TemplateItem({ t }: { t: { id: string; name: string } }) {
   return (
     <div>
@@ -111,6 +128,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
         contactName: clients.contactName,
         email: clients.email,
         phone: clients.phone,
+        language: clients.language,
       })
       .from(projectClients)
       .innerJoin(clients, eq(clients.id, projectClients.clientId))
@@ -221,7 +239,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
                   </summary>
                   {/* key: depois de salvar, o formulário volta com os dados novos. */}
                   <form
-                    key={[c.name, c.cnpj, c.contactName, c.email, c.phone].join("|")}
+                    key={[c.name, c.cnpj, c.contactName, c.email, c.phone, c.language].join("|")}
                     action={updateClient}
                     className="mt-2 flex flex-col gap-3"
                   >
@@ -248,6 +266,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
                           />
                         </label>
                       ))}
+                      <LanguageField defaultValue={c.language} />
                     </div>
                     <p className="text-xs text-slate-500">
                       O cadastro é único: a alteração vale em todos os projetos deste cliente.
@@ -307,6 +326,7 @@ async function ProjectDetail({ params }: { params: Promise<{ id: string }> }) {
               Telefone
               <input name="phone" maxLength={50} className={ui.input} />
             </label>
+            <LanguageField defaultValue="pt" />
           </div>
           <div>
             <button className={ui.button}>Adicionar cliente</button>

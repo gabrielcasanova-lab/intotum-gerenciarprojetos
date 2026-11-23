@@ -1,4 +1,9 @@
 // Textos e cores exibidos na tela para os valores guardados no banco.
+// Os textos em português vêm de lib/i18n.ts (lá também está o espanhol).
+
+import { dictionary } from "./i18n";
+
+const pt = dictionary("pt");
 
 export const STATUSES = [
   "nao_iniciado",
@@ -9,13 +14,7 @@ export const STATUSES = [
 ] as const;
 export type Status = (typeof STATUSES)[number];
 
-export const statusLabel: Record<Status, string> = {
-  nao_iniciado: "Não iniciado",
-  iniciado: "Iniciado",
-  concluido: "Concluído",
-  aguardando_cliente: "Aguardando cliente",
-  bloqueado: "Bloqueado",
-};
+export const statusLabel: Record<Status, string> = pt.status;
 
 export const statusColor: Record<Status, string> = {
   nao_iniciado: "bg-slate-100 text-slate-700",
@@ -28,11 +27,8 @@ export const statusColor: Record<Status, string> = {
 export const IMPLEMENTATION_STATUSES = ["iniciado", "finalizado", "cancelado"] as const;
 export type ImplementationStatus = (typeof IMPLEMENTATION_STATUSES)[number];
 
-export const implementationStatusLabel: Record<ImplementationStatus, string> = {
-  iniciado: "Em andamento",
-  finalizado: "Finalizado",
-  cancelado: "Cancelado",
-};
+export const implementationStatusLabel: Record<ImplementationStatus, string> =
+  pt.implementationStatus;
 
 export const implementationStatusColor: Record<ImplementationStatus, string> = {
   iniciado: "bg-blue-100 text-blue-800",
@@ -43,18 +39,9 @@ export const implementationStatusColor: Record<ImplementationStatus, string> = {
 export const PRIORITIES = ["baixa", "media", "alta", "urgente"] as const;
 export type Priority = (typeof PRIORITIES)[number];
 
-export const priorityLabel: Record<Priority, string> = {
-  baixa: "Baixa",
-  media: "Média",
-  alta: "Alta",
-  urgente: "Urgente",
-};
+export const priorityLabel: Record<Priority, string> = pt.priority;
 
-export const roleLabel = {
-  admin: "Administrador",
-  equipe: "Equipe",
-  cliente: "Cliente",
-} as const;
+export const roleLabel = pt.role;
 
 export const projectTypeLabel = { sistema: "Sistema", servico: "Serviço" } as const;
 

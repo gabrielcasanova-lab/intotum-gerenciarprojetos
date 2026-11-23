@@ -4,13 +4,19 @@ import { useActionState } from "react";
 import * as ui from "@/lib/ui/styles";
 import { setPasswordFromLink } from "./actions";
 
-export function PasswordForm({ token }: { token: string }) {
+export function PasswordForm({
+  token,
+  text,
+}: {
+  token: string;
+  text: { newPassword: string; repeatPassword: string; saving: string; savePassword: string };
+}) {
   const [state, action, pending] = useActionState(setPasswordFromLink, undefined);
   return (
     <form action={action} className="flex flex-col gap-4">
       <input type="hidden" name="token" value={token} />
       <label className={ui.label}>
-        Nova senha
+        {text.newPassword}
         <input
           name="password"
           type="password"
@@ -21,7 +27,7 @@ export function PasswordForm({ token }: { token: string }) {
         />
       </label>
       <label className={ui.label}>
-        Repita a senha
+        {text.repeatPassword}
         <input
           name="confirm"
           type="password"
@@ -36,7 +42,7 @@ export function PasswordForm({ token }: { token: string }) {
         </p>
       )}
       <button disabled={pending} className={ui.button}>
-        {pending ? "Salvando…" : "Salvar senha e entrar"}
+        {pending ? text.saving : text.savePassword}
       </button>
     </form>
   );

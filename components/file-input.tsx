@@ -8,8 +8,9 @@ import type { ComponentProps } from "react";
  */
 export function FileInput({
   maxBytes,
+  tooBigMessage,
   ...props
-}: ComponentProps<"input"> & { maxBytes: number }) {
+}: ComponentProps<"input"> & { maxBytes: number; tooBigMessage?: string }) {
   return (
     <input
       type="file"
@@ -19,7 +20,7 @@ export function FileInput({
         const file = input.files?.[0];
         const mb = Math.round(maxBytes / 1024 / 1024);
         input.setCustomValidity(
-          file && file.size > maxBytes ? `Arquivo maior que ${mb} MB.` : "",
+          file && file.size > maxBytes ? (tooBigMessage ?? `Arquivo maior que ${mb} MB.`) : "",
         );
         input.reportValidity();
       }}

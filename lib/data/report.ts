@@ -12,6 +12,7 @@ import {
 import type { ImplementationStatus } from "@/lib/labels";
 import type { ClientAccess } from "@/lib/data/access";
 import type { Priority, Status } from "@/lib/labels";
+import type { Language } from "@/lib/i18n";
 
 export type ReportActivity = {
   id: string;
@@ -31,6 +32,7 @@ export type ClientReport = {
   companyName: string;
   projectName: string;
   clientName: string;
+  language: Language;
   status: ImplementationStatus;
   modules: { id: string; name: string; activities: ReportActivity[] }[];
   videos: { title: string; url: string; recordedOn: string | null }[];
@@ -64,7 +66,7 @@ export async function loadClientReport(
           clientContact: activities.clientContact,
           startDate: activities.startDate,
           dueDate: activities.dueDate,
-      completedOn: activities.completedOn,
+          completedOn: activities.completedOn,
         })
         .from(activities)
         .leftJoin(users, eq(users.id, activities.assigneeUserId))
@@ -126,6 +128,7 @@ export async function loadClientReport(
     companyName: settings?.name ?? "Intotum",
     projectName: access.projectName,
     clientName: access.clientName,
+    language: access.clientLanguage,
     status: access.status,
     modules: modules.map((m) => ({
       ...m,

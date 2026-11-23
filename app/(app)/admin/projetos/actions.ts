@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import * as z from "zod";
 import { db } from "@/lib/db";
 import {
+  accessGrants,
   activities,
   attachments,
   clientModules,
@@ -14,6 +15,7 @@ import {
   moduleTemplateActivities,
   projectClients,
   projects,
+  users,
 } from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth/dal";
 import { logAudit } from "@/lib/audit";
@@ -397,6 +399,7 @@ export async function addClientToProject(formData: FormData) {
       contactName: optionalText(200),
       email: optionalText(200),
       phone: optionalText(50),
+      language: z.enum(["pt", "es"]).default("pt"),
     })
     .parse(Object.fromEntries(formData));
 
@@ -411,6 +414,7 @@ export async function addClientToProject(formData: FormData) {
         contactName: data.contactName,
         email: data.email,
         phone: data.phone,
+        language: data.language,
       })
       .returning();
     clientId = client.id;
@@ -441,10 +445,21 @@ export async function updateClient(formData: FormData) {
       contactName: optionalText(200),
       email: optionalText(200),
       phone: optionalText(50),
+      language: z.enum(["pt", "es"]),
     })
     .parse(Object.fromEntries(formData));
 
   await db.update(clients).set(values).where(eq(clients.id, clientId));
+  // Os usuários deste cliente acompanham o idioma do cadastro.
+  const clientUsers = db
+    .select({ userId: accessGrants.userId })
+    .from(accessGrants)
+    .innerJoin(projectClients, eq(projectClients.id, accessGrants.projectClientId))
+    .where(eq(projectClients.clientId, clientId));
+  await db
+    .update(users)
+    .set({ language: values.language })
+    .where(and(eq(users.role, "cliente"), inArray(users.id, clientUsers)));
   await logAudit(admin.id, "cliente", clientId, "alterar", values);
   refresh();
 }

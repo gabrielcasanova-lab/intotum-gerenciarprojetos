@@ -9,6 +9,7 @@ import {
 } from "@/lib/db/schema";
 import { accessLevel, type Grant, type Level } from "@/lib/permissions";
 import type { ImplementationStatus } from "@/lib/labels";
+import type { Language } from "@/lib/i18n";
 import type { SessionUser } from "@/lib/auth/session";
 
 export async function loadGrants(userId: string): Promise<Grant[]> {
@@ -29,6 +30,8 @@ export type ClientAccess = {
   allowSubactivities: boolean;
   clientId: string;
   clientName: string;
+  /** Idioma do cliente: o do relatório em PDF. */
+  clientLanguage: Language;
   status: ImplementationStatus;
   level: Level;
 };
@@ -52,6 +55,7 @@ export async function getClientAccess(
       allowSubactivities: projects.allowSubactivities,
       clientId: clients.id,
       clientName: clients.name,
+      clientLanguage: clients.language,
       status: projectClients.status,
     })
     .from(projectClients)

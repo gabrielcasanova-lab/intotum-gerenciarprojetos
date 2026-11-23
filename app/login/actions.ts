@@ -7,22 +7,24 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { nextLockState, verifyPassword } from "@/lib/auth/password";
 import { createSession, destroySession } from "@/lib/auth/session";
-
-const LoginSchema = z.object({
-  email: z.email({ error: "Informe um e-mail válido." }).trim().toLowerCase(),
-  password: z.string().min(1, { error: "Informe a senha." }),
-});
+import { dictionary } from "@/lib/i18n";
+import { cookieLanguage, rememberLanguage } from "@/lib/language";
 
 export type LoginState = { error?: string } | undefined;
-
-// Mesma mensagem para e-mail inexistente e senha errada, para não revelar
-// quais e-mails têm cadastro.
-const INVALID = "E-mail ou senha incorretos.";
 
 export async function login(
   _state: LoginState,
   formData: FormData,
 ): Promise<LoginState> {
+  const t = dictionary(await cookieLanguage()).auth;
+  const LoginSchema = z.object({
+    email: z.email({ error: t.invalidEmail }).trim().toLowerCase(),
+    password: z.string().min(1, { error: t.passwordRequired }),
+  });
+  // Mesma mensagem para e-mail inexistente e senha errada, para não revelar
+  // quais e-mails têm cadastro.
+  const INVALID = t.invalidLogin;
+
   const parsed = LoginSchema.safeParse({
     email: formData.get("email"),
     password: formData.get("password"),
@@ -45,8 +47,7 @@ export async function login(
   const now = new Date();
   if (user.lockedUntil && user.lockedUntil > now) {
     return {
-      error:
-        "Acesso bloqueado temporariamente por excesso de tentativas. Tente de novo em alguns minutos.",
+      error: t.locked,
     };
   }
 
@@ -59,6 +60,8 @@ export async function login(
   if (!ok) return { error: INVALID };
 
   await createSession(user.id);
+  // A tela de login abre no idioma desta pessoa da próxima vez.
+  await rememberLanguage(user.language);
   redirect("/");
 }
 

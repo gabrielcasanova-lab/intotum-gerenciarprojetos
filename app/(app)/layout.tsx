@@ -3,23 +3,25 @@ import { Suspense } from "react";
 import { getCurrentUser } from "@/lib/auth/dal";
 import { logout } from "@/app/login/actions";
 
-import { roleLabel } from "@/lib/labels";
+import { dictionary } from "@/lib/i18n";
+import { LanguageSwitch } from "@/components/language-switch";
 
 const navLink = "rounded-md px-2 py-1 text-sm text-slate-700 hover:bg-slate-100";
 
 async function Nav() {
   const user = await getCurrentUser();
   if (user.role !== "admin") return null;
+  const t = dictionary(user.language);
   return (
     <nav className="flex items-center gap-1">
       <Link href="/" className={navLink}>
-        Clientes
+        {t.navClients}
       </Link>
       <Link href="/admin/projetos" className={navLink}>
-        Projetos
+        {t.navProjects}
       </Link>
       <Link href="/admin/usuarios" className={navLink}>
-        Usuários
+        {t.navUsers}
       </Link>
     </nav>
   );
@@ -27,17 +29,28 @@ async function Nav() {
 
 async function UserMenu() {
   const user = await getCurrentUser();
+  const t = dictionary(user.language);
   return (
-    <div className="flex items-center gap-3 text-sm">
+    <div className="flex flex-wrap items-center gap-3 text-sm">
+      <LanguageSwitch current={user.language} />
       <span className="text-slate-600">
-        {user.name} · {roleLabel[user.role]}
+        {user.name} · {t.role[user.role]}
       </span>
       <form action={logout}>
         <button className="rounded-md border border-slate-300 px-3 py-1 hover:bg-slate-100">
-          Sair
+          {t.logout}
         </button>
       </form>
     </div>
+  );
+}
+
+async function AppName() {
+  const user = await getCurrentUser();
+  return (
+    <Link href="/" className="font-semibold">
+      {dictionary(user.language).appName}
+    </Link>
   );
 }
 
@@ -46,9 +59,9 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
     <div className="flex flex-1 flex-col bg-slate-50">
       <header className="flex flex-wrap items-center gap-2 justify-between border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center gap-4">
-          <Link href="/" className="font-semibold">
-            Intotum Projetos
-          </Link>
+          <Suspense fallback={<span className="font-semibold">Intotum</span>}>
+            <AppName />
+          </Suspense>
           <Suspense fallback={null}>
             <Nav />
           </Suspense>

@@ -3,17 +3,19 @@ import { Suspense } from "react";
 import { getCurrentUser } from "@/lib/auth/dal";
 import { listVisibleClients, type VisibleClient } from "@/lib/data/access";
 import { ImplementationBadge } from "@/components/implementation-badge";
+import { dictionary } from "@/lib/i18n";
 
 async function ClientList() {
   const user = await getCurrentUser();
   const visible = await listVisibleClients(user);
+  const t = dictionary(user.language);
 
   if (visible.length === 0) {
     return (
       <p className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-slate-600">
         {user.role === "admin"
-          ? "Nenhum cliente cadastrado ainda."
-          : "Você ainda não foi vinculado a nenhum projeto. Fale com o administrador."}
+          ? t.noClientsAdmin
+          : t.noClientsUser}
       </p>
     );
   }
@@ -36,10 +38,10 @@ async function ClientList() {
                 >
                   <span className="flex items-center gap-2">
                     {c.clientName}
-                    <ImplementationBadge status={c.status} />
+                    <ImplementationBadge status={c.status} language={user.language} />
                   </span>
                   <span className="text-xs text-slate-500">
-                    {c.level === "editar" ? "Edição" : "Visualização"}
+                    {c.level === "editar" ? t.levelEdit : t.levelView}
                   </span>
                 </Link>
               </li>
@@ -51,13 +53,20 @@ async function ClientList() {
   );
 }
 
+async function Title() {
+  const user = await getCurrentUser();
+  return (
+    <h1 className="mb-4 text-2xl font-semibold">
+      {dictionary(user.language).clientsTitle}
+    </h1>
+  );
+}
+
 export default function HomePage() {
   return (
-    <>
-      <h1 className="mb-4 text-2xl font-semibold">Clientes</h1>
-      <Suspense fallback={<p className="text-slate-500">Carregando…</p>}>
-        <ClientList />
-      </Suspense>
-    </>
+    <Suspense fallback={<p className="text-slate-500">…</p>}>
+      <Title />
+      <ClientList />
+    </Suspense>
   );
 }

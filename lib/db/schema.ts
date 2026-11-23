@@ -60,6 +60,9 @@ export const implementationStatus = pgEnum("implementation_status", [
   "cancelado",
 ]);
 
+/** Idioma das telas, e-mails e PDF (pt = português, es = espanhol). */
+export const language = pgEnum("language", ["pt", "es"]);
+
 export const customFieldType = pgEnum("custom_field_type", [
   "texto",
   "texto_longo",
@@ -88,6 +91,7 @@ export const users = pgTable("users", {
   // Nulo enquanto o convite não foi aceito.
   passwordHash: text("password_hash"),
   role: userRole("role").notNull(),
+  language: language("language").notNull().default("pt"),
   active: boolean("active").notNull().default(true),
   failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
   lockedUntil: timestamp("locked_until", { withTimezone: true }),
@@ -152,6 +156,8 @@ export const clients = pgTable("clients", {
   contactName: text("contact_name"),
   email: text("email"),
   phone: text("phone"),
+  // Idioma do relatório em PDF deste cliente.
+  language: language("language").notNull().default("pt"),
   createdAt: createdAt(),
 });
 

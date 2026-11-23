@@ -3,18 +3,21 @@ export function MoveButtons({
   action,
   fields,
   name,
+  labels,
   first,
   last,
 }: {
   action: (formData: FormData) => Promise<void>;
   fields: Record<string, string>;
   name: string;
+  /** Textos dos botões em outro idioma; sem isso, em português. */
+  labels?: { up: string; down: string };
   first: boolean;
   last: boolean;
 }) {
   const buttons = [
-    { direction: "up", label: "↑", title: `Subir ${name}`, disabled: first },
-    { direction: "down", label: "↓", title: `Descer ${name}`, disabled: last },
+    { direction: "up", label: "↑", title: labels?.up ?? `Subir ${name}`, disabled: first },
+    { direction: "down", label: "↓", title: labels?.down ?? `Descer ${name}`, disabled: last },
   ];
   return (
     <span className="inline-flex gap-0.5">

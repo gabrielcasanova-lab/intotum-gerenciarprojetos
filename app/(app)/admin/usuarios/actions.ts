@@ -5,7 +5,13 @@ import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
 import * as z from "zod";
 import { db } from "@/lib/db";
-import { accessGrants, sessions, users } from "@/lib/db/schema";
+import {
+  accessGrants,
+  clients,
+  projectClients,
+  sessions,
+  users,
+} from "@/lib/db/schema";
 import { requireAdmin } from "@/lib/auth/dal";
 import { hashPassword } from "@/lib/auth/password";
 import { sendUserLink } from "@/lib/auth/tokens";
@@ -31,6 +37,7 @@ export async function createUser(
       name: z.string().trim().min(1, { error: "Informe o nome." }).max(200),
       email: z.email({ error: "Informe um e-mail válido." }).trim().toLowerCase(),
       role: z.enum(["admin", "equipe", "cliente"]),
+      language: z.enum(["pt", "es"]).default("pt"),
       // Em branco: a pessoa recebe um convite por e-mail e cria a própria senha.
       password: z.union([password, z.literal("")]),
     })
@@ -127,6 +134,32 @@ export async function addGrant(formData: FormData) {
     })
     .returning();
   await logAudit(admin.id, "vinculo", grant.id, "criar", data);
+
+  // Usuário de cliente passa a usar o idioma do cadastro do cliente.
+  if (user.role === "cliente") {
+    const [client] = await db
+      .select({ language: clients.language })
+      .from(projectClients)
+      .innerJoin(clients, eq(clients.id, projectClients.clientId))
+      .where(eq(projectClients.id, scopeId));
+    if (client) {
+      await db
+        .update(users)
+        .set({ language: client.language })
+        .where(eq(users.id, data.userId));
+    }
+  }
+  refresh();
+}
+
+/** Idioma das telas e dos e-mails da pessoa. */
+export async function setUserLanguage(formData: FormData) {
+  const admin = await requireAdmin();
+  const { userId, language } = z
+    .object({ userId: id, language: z.enum(["pt", "es"]) })
+    .parse(Object.fromEntries(formData));
+  await db.update(users).set({ language }).where(eq(users.id, userId));
+  await logAudit(admin.id, "usuario", userId, "alterar", { language });
   refresh();
 }
 
@@ -154,6 +187,7 @@ export async function sendLink(
       id: users.id,
       name: users.name,
       email: users.email,
+      language: users.language,
       passwordHash: users.passwordHash,
     })
     .from(users)

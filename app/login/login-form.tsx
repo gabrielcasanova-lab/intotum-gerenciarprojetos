@@ -3,7 +3,11 @@
 import { useActionState, useState } from "react";
 import { login } from "./actions";
 
-export function LoginForm() {
+export function LoginForm({
+  text,
+}: {
+  text: { email: string; password: string; entering: string; enter: string };
+}) {
   const [state, action, pending] = useActionState(login, undefined);
   // Controlado: o React limpa o formulário após a ação e o e-mail não pode sumir.
   const [email, setEmail] = useState("");
@@ -11,7 +15,7 @@ export function LoginForm() {
   return (
     <form action={action} className="flex flex-col gap-4">
       <label className="flex flex-col gap-1 text-sm font-medium">
-        E-mail
+        {text.email}
         <input
           name="email"
           type="email"
@@ -23,7 +27,7 @@ export function LoginForm() {
         />
       </label>
       <label className="flex flex-col gap-1 text-sm font-medium">
-        Senha
+        {text.password}
         <input
           name="password"
           type="password"
@@ -42,7 +46,7 @@ export function LoginForm() {
         disabled={pending}
         className="rounded-md bg-blue-700 px-4 py-2 font-medium text-white hover:bg-blue-800 disabled:opacity-60"
       >
-        {pending ? "Entrando…" : "Entrar"}
+        {pending ? text.entering : text.enter}
       </button>
     </form>
   );

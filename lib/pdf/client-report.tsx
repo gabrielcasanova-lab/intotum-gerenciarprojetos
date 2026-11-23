@@ -8,13 +8,8 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 import type { ClientReport } from "@/lib/data/report";
-import {
-  formatDate,
-  implementationStatusLabel,
-  priorityLabel,
-  statusLabel,
-  type Status,
-} from "@/lib/labels";
+import { formatDate, type Status } from "@/lib/labels";
+import { dateTimeFormat, dictionary } from "@/lib/i18n";
 import { isOverdue, percentDone } from "@/lib/progress";
 
 // Cores fixas do PDF (mesma família das etiquetas da tela): texto e fundo da etiqueta.
@@ -121,12 +116,6 @@ const s = StyleSheet.create({
   },
 });
 
-const dateTime = new Intl.DateTimeFormat("pt-BR", {
-  dateStyle: "short",
-  timeStyle: "short",
-  timeZone: "America/Sao_Paulo",
-});
-
 function Bar({ value, width }: { value: number; width: number | string }) {
   return (
     <View style={[s.barTrack, { width }]}>
@@ -149,14 +138,21 @@ function ClientReportDocument({
   const late = all.filter((a) => isOverdue(a.dueDate, a.status, today)).length;
   const waiting = all.filter((a) => a.status === "aguardando_cliente").length;
   const overall = percentDone(all.map((a) => a.status));
+  const t = dictionary(report.language);
+  const dateTime = dateTimeFormat(report.language);
 
   const boxes = [
-    { value: `${overall}%`, label: "concluído", color: brand, bg: "#eef2ff" },
-    { value: `${done} de ${all.length}`, label: "atividades concluídas", color: "#15803d", bg: "#f0fdf4" },
-    { value: String(waiting), label: "aguardando cliente", color: "#b45309", bg: "#fffbeb" },
+    { value: `${overall}%`, label: t.pdf.percentDone, color: brand, bg: "#eef2ff" },
+    {
+      value: t.pdf.doneOf(done, all.length),
+      label: t.pdf.activitiesDone,
+      color: "#15803d",
+      bg: "#f0fdf4",
+    },
+    { value: String(waiting), label: t.pdf.waitingClient, color: "#b45309", bg: "#fffbeb" },
     {
       value: String(late),
-      label: "com prazo vencido",
+      label: t.pdf.overdue,
       color: late > 0 ? red : "#475569",
       bg: late > 0 ? "#fef2f2" : "#f8fafc",
     },
@@ -166,15 +162,15 @@ function ClientReportDocument({
     <Document
       title={`${report.clientName} - ${report.projectName}`}
       author={report.companyName}
-      language="pt-BR"
+      language={t.locale}
     >
       <Page size="A4" style={s.page}>
         <View style={s.header}>
           <Text style={s.company}>{report.companyName}</Text>
           <Text style={s.title}>{report.clientName}</Text>
           <Text style={s.subtitle}>
-            {report.projectName} · Implantação:{" "}
-            {implementationStatusLabel[report.status].toLowerCase()}
+            {report.projectName} · {t.pdf.implementation}:{" "}
+            {t.implementationStatus[report.status].toLowerCase()}
           </Text>
         </View>
 
@@ -194,7 +190,7 @@ function ClientReportDocument({
             <Bar value={overall} width="100%" />
           </View>
 
-          {report.modules.length === 0 && <Text>Nenhum módulo ativado.</Text>}
+          {report.modules.length === 0 && <Text>{t.pdf.noModules}</Text>}
 
           {report.modules.map((m) => {
             const pct = percentDone(m.activities.map((a) => a.status));
@@ -204,16 +200,16 @@ function ClientReportDocument({
                   <Text style={s.moduleName}>{m.name}</Text>
                   <View style={s.modulePct}>
                     <Bar value={pct} width={60} />
-                    <Text>{pct}% concluído</Text>
+                    <Text>{t.pdf.modulePct(pct)}</Text>
                   </View>
                 </View>
                 {m.activities.length > 0 && (
                   <View style={s.headRow} wrap={false}>
-                    <Text style={s.cName}>Atividade</Text>
-                    <Text style={s.cStatus}>Status</Text>
-                    <Text style={s.cWho}>Responsável</Text>
-                    <Text style={s.cStart}>Início</Text>
-                    <Text style={s.cDone}>Conclusão</Text>
+                    <Text style={s.cName}>{t.pdf.activity}</Text>
+                    <Text style={s.cStatus}>{t.pdf.status}</Text>
+                    <Text style={s.cWho}>{t.pdf.assignee}</Text>
+                    <Text style={s.cStart}>{t.pdf.start}</Text>
+                    <Text style={s.cDone}>{t.pdf.completed}</Text>
                   </View>
                 )}
                 {m.activities.map((a, i) => {
@@ -229,7 +225,7 @@ function ClientReportDocument({
                           {a.parentId ? "- " : ""}
                           {a.name}
                           {a.priority === "alta" || a.priority === "urgente"
-                            ? ` (prioridade ${priorityLabel[a.priority].toLowerCase()})`
+                            ? ` (${t.pdf.priority(t.priority[a.priority].toLowerCase())})`
                             : ""}
                         </Text>
                         {a.comments.map((c, j) => (
@@ -245,7 +241,7 @@ function ClientReportDocument({
                         <Text
                           style={[s.pill, { color: color.text, backgroundColor: color.bg }]}
                         >
-                          {statusLabel[a.status]}
+                          {t.status[a.status]}
                         </Text>
                       </View>
                       <Text style={s.cWho}>
@@ -263,7 +259,7 @@ function ClientReportDocument({
 
           {report.videos.length > 0 && (
             <View style={s.videos} wrap={false}>
-              <Text style={s.videosTitle}>Treinamentos gravados</Text>
+              <Text style={s.videosTitle}>{t.pdf.trainings}</Text>
               {report.videos.map((v, i) => (
                 <View key={i} style={s.videoRow}>
                   {v.recordedOn && <Text>{formatDate(v.recordedOn)}</Text>}
@@ -277,10 +273,10 @@ function ClientReportDocument({
         </View>
 
         <View style={s.footer} fixed>
-          <Text>Gerado em {dateTime.format(generatedAt)}</Text>
+          <Text>{t.pdf.generatedAt(dateTime.format(generatedAt))}</Text>
           <Text
             render={({ pageNumber, totalPages }) =>
-              `Página ${pageNumber} de ${totalPages}`
+              t.pdf.page(pageNumber, totalPages)
             }
           />
         </View>

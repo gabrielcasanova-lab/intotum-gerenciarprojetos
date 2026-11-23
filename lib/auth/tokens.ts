@@ -5,6 +5,7 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { userTokens, users } from "@/lib/db/schema";
 import { appUrl, sendMail } from "@/lib/mail";
+import { dictionary, type Language } from "@/lib/i18n";
 
 export type TokenPurpose = "convite" | "redefinir";
 
@@ -43,6 +44,7 @@ export async function findUserByLink(token: string) {
       userId: users.id,
       name: users.name,
       email: users.email,
+      language: users.language,
     })
     .from(userTokens)
     .innerJoin(users, eq(users.id, userTokens.userId))
@@ -67,25 +69,20 @@ export async function consumeLink(tokenId: string) {
   return used.length === 1;
 }
 
-/** Gera o link e manda por e-mail. Devolve o link e se o e-mail saiu. */
+/** Gera o link e manda por e-mail, no idioma do usuário. Devolve o link e se o e-mail saiu. */
 export async function sendUserLink(
-  user: { id: string; name: string; email: string },
+  user: { id: string; name: string; email: string; language: Language },
   purpose: TokenPurpose,
 ) {
   const link = await createUserLink(user.id, purpose);
+  const t = dictionary(user.language).mail;
   const text =
     purpose === "convite"
-      ? `Olá, ${user.name}.\n\nVocê foi convidado para acompanhar os projetos da Intotum.\n` +
-        `Crie sua senha neste link (válido por 7 dias):\n\n${link}\n\n` +
-        `Depois, entre sempre por ${appUrl()}/login com o e-mail ${user.email}.`
-      : `Olá, ${user.name}.\n\nRecebemos um pedido para redefinir sua senha.\n` +
-        `Crie uma nova senha neste link (válido por 2 horas):\n\n${link}\n\n` +
-        `Se não foi você, ignore este e-mail; sua senha atual continua valendo.`;
+      ? t.invite(user.name, link, `${appUrl()}/login`, user.email)
+      : t.reset(user.name, link);
   const sent = await sendMail(
     user.email,
-    purpose === "convite"
-      ? "Convite: Intotum Projetos"
-      : "Redefinição de senha: Intotum Projetos",
+    purpose === "convite" ? t.inviteSubject : t.resetSubject,
     text,
   );
   return { link, sent };

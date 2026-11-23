@@ -43,6 +43,13 @@
       "when": 1793299067576,
       "tag": "0005_subatividade_padrao",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1795441997591,
+      "tag": "0006_idioma",
+      "breakpoints": true
     }
   ]
 }

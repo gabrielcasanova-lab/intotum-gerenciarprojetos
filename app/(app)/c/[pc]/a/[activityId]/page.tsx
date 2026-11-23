@@ -13,14 +13,8 @@ import {
 import { getCurrentUser } from "@/lib/auth/dal";
 import { getClientAccess, isUuid } from "@/lib/data/access";
 import { visibleCommentTypes } from "@/lib/permissions";
-import {
-  formatDate,
-  priorityLabel,
-  PRIORITIES,
-  statusColor,
-  statusLabel,
-  STATUSES,
-} from "@/lib/labels";
+import { formatDate, PRIORITIES, statusColor, STATUSES } from "@/lib/labels";
+import { dateTimeFormat, dictionary } from "@/lib/i18n";
 import * as ui from "@/lib/ui/styles";
 import { MAX_UPLOAD_BYTES } from "@/lib/uploads";
 import { ConfirmButton } from "@/components/confirm-button";
@@ -39,12 +33,6 @@ function fileSize(bytes: number | null) {
   return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
 }
 
-const dateTime = new Intl.DateTimeFormat("pt-BR", {
-  dateStyle: "short",
-  timeStyle: "short",
-  timeZone: "America/Sao_Paulo",
-});
-
 async function ActivityDetail({
   params,
 }: {
@@ -56,6 +44,8 @@ async function ActivityDetail({
   const access = await getClientAccess(user, pc);
   if (!access) notFound();
   const editable = access.level === "editar";
+  const t = dictionary(user.language);
+  const dateTime = dateTimeFormat(user.language);
 
   const [activity] = await db
     .select({
@@ -133,13 +123,13 @@ async function ActivityDetail({
 
   const sections = visibleCommentTypes(user.role).map((v) => ({
     visibility: v,
-    title: v === "interno" ? "Comentários internos" : "Comentários para o cliente",
+    title: v === "interno" ? t.internalComments : t.clientComments,
     hint:
       v === "interno"
-        ? "Só a equipe da Intotum vê."
+        ? t.internalHint
         : user.role === "cliente"
           ? undefined
-          : "O cliente vê estes comentários.",
+          : t.clientHint,
     list: commentRows.filter((c) => c.visibility === v),
   }));
 
@@ -151,7 +141,7 @@ async function ActivityDetail({
         </Link>
         {parent && (
           <p className="mt-1 text-sm text-slate-500">
-            Subatividade de{" "}
+            {t.subactivityOf}{" "}
             <Link href={`/c/${pc}/a/${parent.id}`} className="hover:underline">
               {parent.name}
             </Link>
@@ -165,7 +155,7 @@ async function ActivityDetail({
           <input type="hidden" name="projectClientId" value={pc} />
           <input type="hidden" name="activityId" value={activity.id} />
           <label className={`${ui.label} sm:col-span-2`}>
-            Nome
+            {t.name}
             <input
               name="name"
               required
@@ -175,7 +165,7 @@ async function ActivityDetail({
             />
           </label>
           <label className={`${ui.label} sm:col-span-2`}>
-            Descrição
+            {t.description}
             <textarea
               name="description"
               rows={3}
@@ -185,27 +175,27 @@ async function ActivityDetail({
             />
           </label>
           <label className={ui.label}>
-            Status
+            {t.statusField}
             <select name="status" defaultValue={activity.status} className={ui.input}>
               {STATUSES.map((s) => (
                 <option key={s} value={s}>
-                  {statusLabel[s]}
+                  {t.status[s]}
                 </option>
               ))}
             </select>
           </label>
           <label className={ui.label}>
-            Prioridade
+            {t.priorityField}
             <select name="priority" defaultValue={activity.priority} className={ui.input}>
               {PRIORITIES.map((p) => (
                 <option key={p} value={p}>
-                  {priorityLabel[p]}
+                  {t.priority[p]}
                 </option>
               ))}
             </select>
           </label>
           <label className={ui.label}>
-            Responsável (Intotum)
+            {t.assignee}
             <select
               name="assigneeUserId"
               defaultValue={activity.assigneeUserId ?? ""}
@@ -220,7 +210,7 @@ async function ActivityDetail({
             </select>
           </label>
           <label className={ui.label}>
-            Contato no cliente
+            {t.clientContact}
             <input
               name="clientContact"
               maxLength={200}
@@ -229,7 +219,7 @@ async function ActivityDetail({
             />
           </label>
           <label className={ui.label}>
-            Início
+            {t.start}
             <input
               name="startDate"
               type="date"
@@ -238,7 +228,7 @@ async function ActivityDetail({
             />
           </label>
           <label className={ui.label}>
-            Prazo
+            {t.due}
             <input
               name="dueDate"
               type="date"
@@ -247,7 +237,7 @@ async function ActivityDetail({
             />
           </label>
           <label className={ui.label}>
-            Conclusão
+            {t.completed}
             <input
               name="completedOn"
               type="date"
@@ -256,44 +246,43 @@ async function ActivityDetail({
             />
           </label>
           <p className="self-end pb-2 text-xs text-slate-500">
-            Datas automáticas: quando a atividade sai de Não iniciado, o Início vazio
-            recebe a data de hoje; quando fica Concluída, a Conclusão vazia também.
+            {t.autoDatesHint}
           </p>
           <div className="sm:col-span-2">
-            <button className={ui.button}>Salvar</button>
+            <button className={ui.button}>{t.save}</button>
           </div>
         </form>
       ) : (
         <dl className={`${ui.card} grid gap-3 p-4 text-sm sm:grid-cols-2`}>
           <div>
-            <dt className="text-slate-500">Status</dt>
+            <dt className="text-slate-500">{t.statusField}</dt>
             <dd>
               <span
                 className={`rounded-full px-2 py-0.5 text-xs ${statusColor[activity.status]}`}
               >
-                {statusLabel[activity.status]}
+                {t.status[activity.status]}
               </span>
             </dd>
           </div>
           <div>
-            <dt className="text-slate-500">Prioridade</dt>
-            <dd>{priorityLabel[activity.priority]}</dd>
+            <dt className="text-slate-500">{t.priorityField}</dt>
+            <dd>{t.priority[activity.priority]}</dd>
           </div>
           <div>
-            <dt className="text-slate-500">Início</dt>
+            <dt className="text-slate-500">{t.start}</dt>
             <dd>{formatDate(activity.startDate) || "—"}</dd>
           </div>
           <div>
-            <dt className="text-slate-500">Prazo</dt>
+            <dt className="text-slate-500">{t.due}</dt>
             <dd>{formatDate(activity.dueDate) || "—"}</dd>
           </div>
           <div>
-            <dt className="text-slate-500">Conclusão</dt>
+            <dt className="text-slate-500">{t.completed}</dt>
             <dd>{formatDate(activity.completedOn) || "—"}</dd>
           </div>
           {activity.description && (
             <div className="sm:col-span-2">
-              <dt className="text-slate-500">Descrição</dt>
+              <dt className="text-slate-500">{t.description}</dt>
               <dd className="whitespace-pre-wrap">{activity.description}</dd>
             </div>
           )}
@@ -301,7 +290,7 @@ async function ActivityDetail({
       )}
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold">Anexos</h2>
+        <h2 className="text-lg font-semibold">{t.attachments}</h2>
         {files.length > 0 ? (
           <ul className={`${ui.card} divide-y divide-slate-100`}>
             {files.map((f) => (
@@ -316,7 +305,7 @@ async function ActivityDetail({
                   📎 {f.fileName}
                 </a>
                 <span className="text-xs text-slate-500">
-                  {fileSize(f.sizeBytes)} · {f.uploaderName ?? "Usuário removido"} ·{" "}
+                  {fileSize(f.sizeBytes)} · {f.uploaderName ?? t.removedUser} ·{" "}
                   {dateTime.format(f.createdAt)}
                 </span>
                 {user.role !== "cliente" && (
@@ -327,7 +316,7 @@ async function ActivityDetail({
                         : "bg-blue-100 text-blue-800"
                     }`}
                   >
-                    {f.visibility === "interno" ? "Interno" : "Cliente vê"}
+                    {f.visibility === "interno" ? t.internal : t.clientSees}
                   </span>
                 )}
                 {editable && (
@@ -337,9 +326,9 @@ async function ActivityDetail({
                     <input type="hidden" name="attachmentId" value={f.id} />
                     <ConfirmButton
                       className="rounded px-1.5 text-slate-400 hover:bg-red-50 hover:text-red-700"
-                      aria-label={`Excluir ${f.fileName}`}
-                      title="Excluir anexo"
-                      message={`Excluir o anexo "${f.fileName}"?`}
+                      aria-label={t.deleteNamed(f.fileName)}
+                      title={t.deleteAttachment}
+                      message={t.confirmDeleteAttachment(f.fileName)}
                     >
                       ×
                     </ConfirmButton>
@@ -349,15 +338,16 @@ async function ActivityDetail({
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-slate-500">Nenhum anexo.</p>
+          <p className="text-sm text-slate-500">{t.noAttachments}</p>
         )}
         {editable && (
           <form action={uploadAttachment} className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="projectClientId" value={pc} />
             <input type="hidden" name="activityId" value={activity.id} />
             <label className={`${ui.label} min-w-48 flex-1`}>
-              Arquivo (até 20 MB)
+              {t.fileUpTo}
               <FileInput
+                tooBigMessage={t.fileTooBig(Math.round(MAX_UPLOAD_BYTES / 1024 / 1024))}
                 name="file"
                 required
                 maxBytes={MAX_UPLOAD_BYTES}
@@ -365,13 +355,13 @@ async function ActivityDetail({
               />
             </label>
             <label className={ui.label}>
-              Quem vê
+              {t.whoSees}
               <select name="visibility" defaultValue="interno" className={ui.input}>
-                <option value="interno">Só a equipe</option>
-                <option value="cliente">Equipe e cliente</option>
+                <option value="interno">{t.teamOnly}</option>
+                <option value="cliente">{t.teamAndClient}</option>
               </select>
             </label>
-            <button className={ui.buttonSecondary}>Anexar</button>
+            <button className={ui.buttonSecondary}>{t.attach}</button>
           </form>
         )}
       </section>
@@ -385,7 +375,7 @@ async function ActivityDetail({
               {s.list.map((c) => (
                 <li key={c.id} className="px-4 py-3 text-sm">
                   <p className="text-xs text-slate-500">
-                    {c.authorName ?? "Usuário removido"} ·{" "}
+                    {c.authorName ?? t.removedUser} ·{" "}
                     {dateTime.format(c.createdAt)}
                   </p>
                   <p className="mt-1 whitespace-pre-wrap">{c.body}</p>
@@ -393,7 +383,7 @@ async function ActivityDetail({
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-slate-500">Nenhum comentário.</p>
+            <p className="text-sm text-slate-500">{t.noComments}</p>
           )}
           {editable && (
             <form action={addComment} className="flex flex-col gap-2">
@@ -408,13 +398,13 @@ async function ActivityDetail({
                 aria-label={s.title}
                 placeholder={
                   s.visibility === "interno"
-                    ? "Comentário interno"
-                    : "Comentário que o cliente vai ver"
+                    ? t.internalPlaceholder
+                    : t.clientPlaceholder
                 }
                 className={ui.input}
               />
               <div>
-                <button className={ui.buttonSecondary}>Comentar</button>
+                <button className={ui.buttonSecondary}>{t.comment}</button>
               </div>
             </form>
           )}
@@ -427,9 +417,9 @@ async function ActivityDetail({
           <input type="hidden" name="activityId" value={activity.id} />
           <ConfirmButton
             className={ui.buttonDanger}
-            message={`Excluir a atividade "${activity.name}" e os comentários dela?`}
+            message={t.confirmDeleteActivity(activity.name)}
           >
-            Excluir atividade
+            {t.deleteActivity}
           </ConfirmButton>
         </form>
       )}
@@ -439,7 +429,7 @@ async function ActivityDetail({
 
 export default function ActivityPage({ params }: PageProps<"/c/[pc]/a/[activityId]">) {
   return (
-    <Suspense fallback={<p className="text-slate-500">Carregando…</p>}>
+    <Suspense fallback={<p className="text-slate-500">…</p>}>
       <ActivityDetail params={params} />
     </Suspense>
   );

@@ -9,32 +9,31 @@ import { hashPassword } from "@/lib/auth/password";
 import { createSession } from "@/lib/auth/session";
 import { consumeLink, findUserByLink } from "@/lib/auth/tokens";
 import { logAudit } from "@/lib/audit";
+import { dictionary, type Dictionary } from "@/lib/i18n";
+import { rememberLanguage } from "@/lib/language";
 
 export type PasswordState = { error?: string } | undefined;
 
-const NewPasswordSchema = z
-  .object({
-    password: z
-      .string()
-      .min(8, { error: "A senha precisa ter pelo menos 8 caracteres." })
-      .max(200),
-    confirm: z.string(),
-  })
-  .refine((d) => d.password === d.confirm, {
-    error: "As duas senhas não são iguais.",
-  });
+const newPasswordSchema = (t: Dictionary["auth"]) =>
+  z
+    .object({
+      password: z.string().min(8, { error: t.passwordMin }).max(200),
+      confirm: z.string(),
+    })
+    .refine((d) => d.password === d.confirm, { error: t.passwordMismatch });
 
 /** Cria a senha a partir do link do convite ou da redefinição e já entra. */
 export async function setPasswordFromLink(
   _state: PasswordState,
   formData: FormData,
 ): Promise<PasswordState> {
-  const parsed = NewPasswordSchema.safeParse(Object.fromEntries(formData));
+  const link = await findUserByLink(String(formData.get("token") ?? ""));
+  const t = dictionary(link?.language ?? "pt").auth;
+  const parsed = newPasswordSchema(t).safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
-  const link = await findUserByLink(String(formData.get("token") ?? ""));
   if (!link || !(await consumeLink(link.tokenId))) {
-    return { error: "Este link expirou ou já foi usado. Peça um novo." };
+    return { error: t.linkExpired };
   }
 
   await db
@@ -52,5 +51,6 @@ export async function setPasswordFromLink(
   });
 
   await createSession(link.userId);
+  await rememberLanguage(link.language);
   redirect("/");
 }

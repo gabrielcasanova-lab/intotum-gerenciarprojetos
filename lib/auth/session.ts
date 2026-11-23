@@ -38,6 +38,7 @@ export type SessionUser = {
   name: string;
   email: string;
   role: "admin" | "equipe" | "cliente";
+  language: "pt" | "es";
 };
 
 /** Usuário da sessão atual, ou null. Usuário desativado perde o acesso na hora. */
@@ -53,6 +54,7 @@ export async function readSessionUser(): Promise<SessionUser | null> {
       name: users.name,
       email: users.email,
       role: users.role,
+      language: users.language,
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
