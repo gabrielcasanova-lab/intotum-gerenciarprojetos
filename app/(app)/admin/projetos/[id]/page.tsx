@@ -25,6 +25,7 @@ import {
   deleteModule,
   deleteProject,
   deleteTemplateActivity,
+  importSpanishNames,
   moveClient,
   moveModule,
   renameModule,
@@ -114,11 +115,12 @@ async function ProjectDetail({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ excluir?: string }>;
+  searchParams: Promise<{ excluir?: string; importados?: string; semTraducao?: string }>;
 }) {
   await requireAdmin();
   const { id } = await params;
-  const wrongName = (await searchParams).excluir === "nome-errado";
+  const query = await searchParams;
+  const wrongName = query.excluir === "nome-errado";
   if (!isUuid(id)) notFound();
 
   const [project] = await db.select().from(projects).where(eq(projects.id, id));
@@ -539,6 +541,45 @@ async function ProjectDetail({
           />
           <button className={ui.button}>Adicionar módulo</button>
         </form>
+        <details
+          id="importar-espanhol"
+          open={query.importados !== undefined}
+          className={`${ui.card} p-4`}
+        >
+          <summary className="cursor-pointer text-sm font-medium text-blue-700 hover:underline">
+            Importar nomes em espanhol (colar lista)
+          </summary>
+          {query.importados !== undefined && (
+            <div role="status" className="mt-2 text-sm">
+              <p className="text-green-700">
+                {query.importados} nome(s) em espanhol salvos.
+              </p>
+              {query.semTraducao && (
+                <p className="mt-1 text-amber-800">
+                  Sem tradução na lista: {query.semTraducao.split("|").join(", ")}
+                </p>
+              )}
+            </div>
+          )}
+          <form action={importSpanishNames} className="mt-2 flex flex-col gap-2">
+            <input type="hidden" name="projectId" value={project.id} />
+            <textarea
+              name="list"
+              required
+              rows={8}
+              placeholder={"Uma linha por item, no formato Português = Español\nEstoque = Inventario\nProdutos = Productos"}
+              className={`${ui.input} font-mono text-xs`}
+            />
+            <p className="text-xs text-slate-500">
+              Vale para módulos, atividades e subatividades deste projeto. Linhas
+              começando com # são ignoradas. Maiúsculas, acentos e espaços não
+              atrapalham a busca do nome em português.
+            </p>
+            <div>
+              <button className={ui.buttonSecondary}>Importar</button>
+            </div>
+          </form>
+        </details>
         {otherProjects.length > 0 && (
           <form action={copyModulesFrom} className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="projectId" value={project.id} />
@@ -606,7 +647,9 @@ export default function ProjectPage({
     <Suspense fallback={<p className="text-slate-500">Carregando…</p>}>
       <ProjectDetail
         params={params}
-        searchParams={searchParams as Promise<{ excluir?: string }>}
+        searchParams={
+          searchParams as Promise<{ excluir?: string; importados?: string; semTraducao?: string }>
+        }
       />
     </Suspense>
   );

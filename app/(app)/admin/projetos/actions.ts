@@ -24,6 +24,7 @@ import { moveInOrder } from "@/lib/order";
 import { copyTree } from "@/lib/tree";
 import { removeUploads } from "@/lib/uploads";
 import { syncCatalogNames } from "@/lib/data/catalog-names";
+import { findSpanishName, parseNameList } from "@/lib/catalog-names";
 
 const text = (max = 200) => z.string().trim().min(1).max(max);
 const optionalText = (max = 2000) =>
@@ -273,6 +274,75 @@ export async function renameModule(formData: FormData) {
 }
 
 /** Sobe ou desce um módulo uma posição no catálogo. */
+/**
+ * Preenche de uma vez os nomes em espanhol do catálogo do projeto a partir de
+ * uma lista "Português = Español". Itens que não estão na lista ficam como estão.
+ */
+export async function importSpanishNames(formData: FormData) {
+  const admin = await requireAdmin();
+  const { projectId, list } = z
+    .object({ projectId: id, list: z.string().max(200_000) })
+    .parse(Object.fromEntries(formData));
+  const lines = parseNameList(list);
+
+  const modules = await db
+    .select()
+    .from(moduleCatalog)
+    .where(eq(moduleCatalog.projectId, projectId));
+  const templates = modules.length
+    ? await db
+        .select()
+        .from(moduleTemplateActivities)
+        .where(
+          inArray(
+            moduleTemplateActivities.moduleCatalogId,
+            modules.map((m) => m.id),
+          ),
+        )
+    : [];
+
+  let updated = 0;
+  const used = new Set<string>();
+  await db.transaction(async (tx) => {
+    const previous = new Map<string, { id: string; name: string; nameEs: string | null }>();
+    for (const m of modules) {
+      const es = findSpanishName(m.name, lines);
+      if (!es) continue;
+      used.add(m.name);
+      if (es === m.nameEs) continue;
+      previous.set(m.id, m);
+      await tx.update(moduleCatalog).set({ nameEs: es }).where(eq(moduleCatalog.id, m.id));
+      updated++;
+    }
+    for (const t of templates) {
+      const es = findSpanishName(t.name, lines);
+      if (!es) continue;
+      used.add(t.name);
+      if (es === t.nameEs) continue;
+      previous.set(t.id, t);
+      await tx
+        .update(moduleTemplateActivities)
+        .set({ nameEs: es })
+        .where(eq(moduleTemplateActivities.id, t.id));
+      updated++;
+    }
+    // Clientes em espanhol que já usam o catálogo passam aos nomes novos.
+    await syncCatalogNames(tx, { moduleCatalogIds: modules.map((m) => m.id) }, previous);
+  });
+
+  const missing = [...modules.map((m) => m.name), ...templates.map((t) => t.name)].filter(
+    (n) => !used.has(n),
+  );
+  await logAudit(admin.id, "projeto", projectId, "alterar", {
+    nomesEmEspanhol: updated,
+  });
+  const query = new URLSearchParams({
+    importados: String(updated),
+    semTraducao: [...new Set(missing)].join("|").slice(0, 1500),
+  });
+  redirect(`/admin/projetos/${projectId}?${query}#importar-espanhol`);
+}
+
 export async function moveModule(formData: FormData) {
   const admin = await requireAdmin();
   const { moduleId, direction } = z
